@@ -1,0 +1,10 @@
+streamlit==1.47.1
+langchain-openai==0.2.9
+langgraph==0.5.1
+langchain-core==0.3.51
+langchain-mcp-adapters==0.1.9
+asyncio==3.4.3
+pydantic==2.11.7
+pydantic-settings==2.10.1
+pydantic_core==2.33.2
+openai==1.97.1
