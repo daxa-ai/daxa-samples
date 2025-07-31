@@ -113,6 +113,79 @@ def extract_final_answer(stream_result):
     except Exception as e:
         return f"Error extracting answer: {str(e)}"
 
+def extract_tool_calls_from_step(step, node_name):
+    """Extract tool calls from a step for a specific node"""
+    if node_name in step and 'messages' in step[node_name]:
+        messages = step[node_name]['messages']
+        for message in messages:
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                return [tool_call["name"] for tool_call in message.tool_calls]
+    return []
+
+def extract_tools_used(stream_result):
+    """Extract all tools used during the process"""
+    tools_used = set()
+    for step in stream_result:
+        for node_name in step:
+            if node_name == 'call_model':
+                tools_used.update(extract_tool_calls_from_step(step, node_name))
+    return list(tools_used)
+
+async def stream_query_steps(user_input: str):
+    """Process the user query through the LangGraph and yield status messages at each step"""
+    try:
+        # Setup the graph
+        graph = await setup_langgraph()
+        
+        # Prepare inputs
+        inputs = {"messages": [HumanMessage(content=user_input)]}
+        
+        # Yield initial status
+        yield "Analyzing your query..."
+        
+        # Collect all steps and yield status for each
+        all_steps = []
+        async for step in graph.astream(inputs, config={"recursion_limit": 10}):
+            all_steps.append(step)
+            
+            # Process each node in the step
+            for node_name, node_data in step.items():
+                if node_name == "call_model":
+                    # Check if this call_model step has tool calls
+                    tool_calls = extract_tool_calls_from_step(step, node_name)
+                    if tool_calls:
+                        for tool_name in tool_calls:
+                            yield f"Selected tool: {tool_name}"
+                            
+                
+                elif node_name == "tools":
+                    # Extract tool names from the previous call_model step
+                    if len(all_steps) > 1:
+                        prev_step = all_steps[-2]  # Get the previous step
+                        tool_calls = extract_tool_calls_from_step(prev_step, "call_model")
+                        for tool_name in tool_calls:
+                            yield f"Received response from {tool_name}"
+                            # Immediately show processing final response after receiving tool response
+                            yield "Processing response..."
+                            
+        
+        # Extract final answer
+        if all_steps:
+            final_answer = extract_final_answer(all_steps[-1])
+            yield f"Final answer: {final_answer}"
+            
+            # Extract and yield tools used
+            tools_used = extract_tools_used(all_steps)
+            if tools_used:
+                yield f"Tools used: {', '.join(tools_used)}"
+            else:
+                yield "No tools were used for this query"
+        else:
+            yield "No response generated"
+            
+    except Exception as e:
+        yield f"Error: {str(e)}"
+
 async def process_query(user_input: str):
     """Process the user query through the LangGraph and return only the final answer"""
     try:
@@ -124,7 +197,7 @@ async def process_query(user_input: str):
         
         # Collect all steps to find the final answer
         final_step = None
-        async for step in graph.astream(inputs, config={"recursion_limit": 5}):
+        async for step in graph.astream(inputs, config={"recursion_limit": 10}):
             final_step = step
         
         # Extract and return only the final answer
@@ -136,4 +209,3 @@ async def process_query(user_input: str):
             
     except Exception as e:
         return f"Error: {str(e)}"
-
