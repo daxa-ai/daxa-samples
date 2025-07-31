@@ -165,6 +165,8 @@ async def stream_query_steps(user_input: str):
                         tool_calls = extract_tool_calls_from_step(prev_step, "call_model")
                         for tool_name in tool_calls:
                             yield f"Received response from {tool_name}"
+                            # Add a small delay for UI before showing processing message
+                            await asyncio.sleep(0.5)
                             # Immediately show processing final response after receiving tool response
                             yield "Processing response..."
                             
