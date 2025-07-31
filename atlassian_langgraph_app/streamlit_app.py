@@ -5,13 +5,13 @@ from main import process_query
 
 # Page configuration
 st.set_page_config(
-    page_title="Ask Atlassian (via LangGraph)",
+    page_title="Jira Agent",
     page_icon="🔧",
     layout="wide"
 )
 
 # Title
-st.title("Ask Atlassian (via LangGraph)")
+st.title("Jira Agent")
 
 # Initialize session state for storing responses
 if 'responses' not in st.session_state:
@@ -34,7 +34,7 @@ def run_async_query(user_input: str):
 # User input section
 st.subheader("Enter your query")
 user_query = st.text_area(
-    "Ask about JIRA tickets, Confluence pages, or other Atlassian resources:",
+    "Ask about JIRA tickets:",
     height=100,
     placeholder="e.g., What is the status of JIRA ticket ABC-9?"
 )
@@ -67,21 +67,11 @@ if st.session_state.responses:
 with st.sidebar:
     st.header("About")
     st.write("""
-    This app uses LangGraph to process queries about Atlassian resources 
-    (JIRA, Confluence, etc.) through the MCP (Model Context Protocol) server.
+    This app uses LangGraph to process queries about JIRA tickets through the MCP (Model Context Protocol) server.
     
     **Features:**
     - Query JIRA tickets
-    - Search Confluence pages
-    - Get project information
     - Clean, parsed answers
-    """)
-    
-    st.header("Requirements")
-    st.write("""
-    - Atlassian MCP server running 
-    - OpenAI API key configured
-    - Docker container for MCP server
     """)
     
     # Clear responses button
