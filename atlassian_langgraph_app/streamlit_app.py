@@ -5,13 +5,13 @@ from main import stream_query_steps, process_query
 
 # Page configuration
 st.set_page_config(
-    page_title="Atlassian Agent",
+    page_title="CustSupport-Pro",
     page_icon="🔧",
     layout="wide"
 )
 
 # Title
-st.title("Atlassian Agent")
+st.title("CustSupport-Pro")
 
 # Initialize session state for storing responses
 if 'responses' not in st.session_state:
@@ -94,7 +94,7 @@ def run_async_query(user_input: str):
 # User input section
 st.subheader("Enter your query")
 user_query = st.text_area(
-    "Ask about Atlassian resources:",
+    "Ask about Jira, Confluence, and other Atlassian resources:",
     height=100,
     placeholder="e.g., What is the status of JIRA ticket ABC-9?"
 )
