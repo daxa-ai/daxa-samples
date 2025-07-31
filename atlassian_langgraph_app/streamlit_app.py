@@ -5,13 +5,13 @@ from main import stream_query_steps, process_query
 
 # Page configuration
 st.set_page_config(
-    page_title="Jira Agent",
+    page_title="Atlassian Agent",
     page_icon="🔧",
     layout="wide"
 )
 
 # Title
-st.title("Jira Agent")
+st.title("Atlassian Agent")
 
 # Initialize session state for storing responses
 if 'responses' not in st.session_state:
@@ -94,7 +94,7 @@ def run_async_query(user_input: str):
 # User input section
 st.subheader("Enter your query")
 user_query = st.text_area(
-    "Ask about JIRA tickets:",
+    "Ask about Atlassian resources:",
     height=100,
     placeholder="e.g., What is the status of JIRA ticket ABC-9?"
 )
@@ -115,10 +115,10 @@ if st.button("Submit Query", type="primary"):
 with st.sidebar:
     st.header("About")
     st.write("""
-    This app uses LangGraph to process queries about JIRA tickets through the MCP (Model Context Protocol) server.
+    This app uses LangGraph to process queries about JIRA tickets, Confluence pages, and other Atlassian resources through the MCP (Model Context Protocol) server.
     
     **Features:**
-    - Query JIRA tickets
+    - Query JIRA, Confluence, and other Atlassian resources
     - Clean, parsed answers
     """)
     
