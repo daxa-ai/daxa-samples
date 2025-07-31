@@ -2,13 +2,24 @@
 import os
 import asyncio
 import json
+from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-# Set your OpenAI API key
-os.environ["OPENAI_API_KEY"] = "your-api-key"
+# Load environment variables from .env file
+load_dotenv(override=True)
+
+# Get environment variables
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL")
+
+# Validate required environment variables
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY environment variable is required")
+if not MCP_SERVER_URL:
+    raise ValueError("MCP_SERVER_URL environment variable is required")
 
 # Load chat model
 chat_model = ChatOpenAI(model="gpt-4o-mini")
@@ -19,7 +30,7 @@ async def setup_langgraph():
     mcp_client = MultiServerMCPClient(
         {
             "mcp-atlassian": {
-                "url": "your-server-url",
+                "url": MCP_SERVER_URL,
                 "transport": "streamable_http" 
             }
         }
@@ -125,3 +136,4 @@ async def process_query(user_input: str):
             
     except Exception as e:
         return f"Error: {str(e)}"
+

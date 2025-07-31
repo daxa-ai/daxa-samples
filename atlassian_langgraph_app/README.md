@@ -30,7 +30,14 @@ This Streamlit application provides a user-friendly interface to interact with A
    pip install -r requirements.txt
    ```
 
-3. **Start the Atlassian MCP server** (in a separate terminal):
+3. **Configure environment variables**:
+   ```bash
+   # Copy the example .env file and update with your values
+   cp .env.example .env
+   # Edit .env file with your actual API key and server URL
+   ```
+
+4. **Start the Atlassian MCP server** (in a separate terminal):
    ```bash
    # Example: Run the MCP server container
    docker run -p 9003:9003 your-mcp-atlassian-server
@@ -59,20 +66,22 @@ This Streamlit application provides a user-friendly interface to interact with A
 ```
 atlassian_langgraph_app/
 ├── streamlit_app.py          # Main Streamlit application (UI only)
-├── mcp-langgraph-atlassian.py # LangGraph logic and MCP integration
+├── main.py                   # LangGraph logic and MCP integration
 ├── requirements.txt          # Python dependencies
-└── README.md                # This file
+├── .env                      # Environment variables (create from .env.example)
+├── .env.example              # Environment variables template
+└── README.md                 # This file
 ```
 
 ## Architecture
 
 The application follows a clean modular design:
 
-### `mcp-langgraph-atlassian.py`
+### `main.py`
 - **`setup_langgraph()`**: Initializes and configures the LangGraph with MCP tools
 - **`process_query()`**: Main function that processes user queries and returns final answer
 - **`extract_final_answer()`**: Extracts the final parsed answer from the stream
-- **`main()`**: Standalone execution function for testing
+- **Environment Variables**: Loads configuration from `.env` file
 
 ### `streamlit_app.py`
 - **UI Components**: Streamlit interface elements
@@ -88,14 +97,26 @@ The application follows a clean modular design:
 
 ## Configuration
 
-### OpenAI API Key
-The application uses a hardcoded OpenAI API key in `mcp-langgraph-atlassian.py`. For production use, consider:
-- Using environment variables
-- Streamlit secrets management
-- Secure key management systems
+### Environment Variables
+The application uses environment variables for configuration. Create a `.env` file in the project root with the following variables:
 
-### MCP Server URL
-The app connects to `http://localhost:9003/mcp`. Modify the URL in `mcp-langgraph-atlassian.py` if your MCP server runs on a different port or host.
+```bash
+# OpenAI API Configuration
+OPENAI_API_KEY=your-api-key
+
+# MCP Server Configuration
+MCP_SERVER_URL=your-server-url
+```
+
+### Required Environment Variables
+
+1. **OPENAI_API_KEY**: Your OpenAI API key for accessing GPT models
+2. **MCP_SERVER_URL**: The URL of your Atlassian MCP server (e.g., `http://localhost:9003/mcp`)
+
+### Security Notes
+- Never commit your `.env` file to version control
+- Use different API keys for development and production
+- Consider using Streamlit secrets management for production deployments
 
 ## Troubleshooting
 
@@ -107,9 +128,10 @@ The app connects to `http://localhost:9003/mcp`. Modify the URL in `mcp-langgrap
    - Verify network connectivity
 
 2. **OpenAI API Errors**:
-   - Verify your API key is valid
+   - Verify your API key is valid and set in the `.env` file
    - Check API quota and billing status
    - Ensure proper internet connectivity
+   - Verify the `OPENAI_API_KEY` environment variable is loaded correctly
 
 3. **Streamlit Display Issues**:
    - Clear browser cache
@@ -120,6 +142,12 @@ The app connects to `http://localhost:9003/mcp`. Modify the URL in `mcp-langgrap
    - Ensure you're running from the correct directory
    - Check that all dependencies are installed
    - Verify the file structure is correct
+
+5. **Environment Variable Issues**:
+   - Ensure the `.env` file exists in the project root
+   - Verify all required environment variables are set
+   - Check that `python-dotenv` is installed
+   - Restart the application after making changes to `.env`
 
 ### Debug Mode
 To run in debug mode, add the `--debug` flag:
@@ -140,7 +168,7 @@ streamlit run streamlit_app.py --debug
 
 You can test the LangGraph functionality independently:
 ```bash
-python mcp-langgraph-atlassian.py
+python main.py
 ```
 
 This will run the example query and show the final parsed answer in the console.
