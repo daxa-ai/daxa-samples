@@ -21,6 +21,8 @@ if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is required")
 if not MCP_SERVER_URL:
     raise ValueError("MCP_SERVER_URL environment variable is required")
+if not MCP_SERVER_API_KEY:
+    raise ValueError("MCP_SERVER_API_KEY environment variable is required")
 
 # Load chat model
 chat_model = ChatOpenAI(model="gpt-4o-mini")
