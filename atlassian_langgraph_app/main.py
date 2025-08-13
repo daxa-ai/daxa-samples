@@ -14,6 +14,7 @@ load_dotenv(override=True)
 # Get environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL")
+MCP_SERVER_API_KEY = os.getenv("MCP_SERVER_API_KEY")
 
 # Validate required environment variables
 if not OPENAI_API_KEY:
@@ -27,14 +28,20 @@ chat_model = ChatOpenAI(model="gpt-4o-mini")
 async def setup_langgraph():
     """Setup and return the LangGraph with Atlassian MCP tools"""
     # Connect to Atlassian MCP server via Docker
-    mcp_client = MultiServerMCPClient(
-        {
-            "mcp-atlassian": {
-                "url": MCP_SERVER_URL,
-                "transport": "streamable_http" 
-            }
+    server_config = {
+        "url": MCP_SERVER_URL,
+        "transport": "streamable_http",
+    }
+
+    # Optionally pass Authorization header if MCP_SERVER_API_KEY is set
+    if MCP_SERVER_API_KEY:
+        server_config["headers"] = {
+            "Authorization": f"Bearer {MCP_SERVER_API_KEY}"
         }
-    )
+
+    mcp_client = MultiServerMCPClient({
+        "mcp-atlassian": server_config
+    })
 
     # Get tools from the client
     tools = await mcp_client.get_tools()
