@@ -98,7 +98,7 @@ The application follows a clean modular design:
 ## Configuration
 
 ### Environment Variables
-The application uses environment variables for configuration. Create a `.env` file in the project root with the following variables:
+ The application uses environment variables for configuration. Create a `.env` file in the project root with the following variables:
 
 ```bash
 # OpenAI API Configuration
@@ -106,12 +106,18 @@ OPENAI_API_KEY=your-api-key
 
 # MCP Server Configuration
 MCP_SERVER_URL=your-server-url
+# Optional: API key for MCP server (sent as Authorization: Bearer <key>)
+MCP_SERVER_API_KEY=your-mcp-api-key
 ```
 
 ### Required Environment Variables
 
 1. **OPENAI_API_KEY**: Your OpenAI API key for accessing GPT models
 2. **MCP_SERVER_URL**: The URL of your Atlassian MCP server (e.g., `http://localhost:9003/mcp`)
+
+### Optional Environment Variables
+
+- **MCP_SERVER_API_KEY**: If set, the app will add `Authorization: Bearer <MCP_SERVER_API_KEY>` to requests to the MCP server.
 
 ### Security Notes
 - Never commit your `.env` file to version control
