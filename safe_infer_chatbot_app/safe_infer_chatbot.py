@@ -191,14 +191,15 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     
     # Model selection
-    st.subheader("🤖 Model Selection")
     available_models = AVAILABLE_MODELS
-    selected_model = st.selectbox(
-        "Choose a model:",
-        available_models,
-        index=available_models.index(st.session_state.selected_model)
-    )
-    st.session_state.selected_model = selected_model
+    if available_models:
+        st.subheader("🤖 Model Selection")
+        selected_model = st.selectbox(
+            "Choose a model:",
+            available_models,
+            index=available_models.index(st.session_state.selected_model)
+        )
+        st.session_state.selected_model = selected_model
     
     # API connection test
     st.subheader("🔗 API Status")
