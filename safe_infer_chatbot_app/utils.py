@@ -36,6 +36,8 @@ def get_available_models():
         response = requests.get(f"{os.environ.get('PROXIMA_HOST')}/api/llm/provider", headers=headers)
         response.raise_for_status()
         models = response.json()
+        if len(models) == 0:
+            return [], ""
         model_names = [model['default_model_name'] for model in models]
 
         default_model_name = next(model for model in models if model['is_default_provider'])['default_model_name']
