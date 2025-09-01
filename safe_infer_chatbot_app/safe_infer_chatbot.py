@@ -57,10 +57,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+from utils import get_available_models
+
 # API Configuration
 API_BASE_URL = os.getenv("PROXIMA_HOST", "http://localhost")
-API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/responses"
-DEFAULT_MODEL = "gpt-4o-mini"
+RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/responses"
+LLM_PROVIDER_API_ENDPOINT = f"{API_BASE_URL}/api/llm/provider"
+AVAILABLE_MODELS, DEFAULT_MODEL = get_available_models()
 
 # Initialize session state
 if 'chat_history' not in st.session_state:
@@ -69,10 +72,6 @@ if 'selected_model' not in st.session_state:
     st.session_state.selected_model = DEFAULT_MODEL
 if 'api_key' not in st.session_state:
     st.session_state.api_key = ""
-
-def get_available_models() -> list:
-    """Get available models - can be extended to fetch from API"""
-    return ["gpt-4o-mini", "gpt-4o"]
 
 def test_api_connection() -> Dict[str, Any]:
     """Test the API connection"""
@@ -104,7 +103,7 @@ def call_safe_infer_api(message: str, model: str, api_key: str = "") -> Dict[str
     
     try:
         response = requests.post(
-            API_ENDPOINT,
+            RESPONSE_API_ENDPOINT,
             json=payload,
             headers=headers,
             timeout=30
@@ -201,7 +200,7 @@ with st.sidebar:
     
     # Model selection
     st.subheader("🤖 Model Selection")
-    available_models = get_available_models()
+    available_models = AVAILABLE_MODELS
     selected_model = st.selectbox(
         "Choose a model:",
         available_models,
