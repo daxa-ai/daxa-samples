@@ -49,6 +49,7 @@ Then open your browser to `http://localhost:8501`
 
 3. **Set up environment variables** (optional):
    ```bash
+   export PEBBLO_API_KEY="pebblo-api-key"
    export PROXIMA_HOST="http://your-proxima-host"
    export PROXIMA_USER_USERNAME="your-proxima-username"
    export PROXIMA_USER_PASSWORD="your-proxima-password"
