@@ -51,8 +51,6 @@ Then open your browser to `http://localhost:8501`
    ```bash
    export PEBBLO_API_KEY="pebblo-api-key"
    export PROXIMA_HOST="http://your-proxima-host"
-   export PROXIMA_USER_USERNAME="your-proxima-username"
-   export PROXIMA_USER_PASSWORD="your-proxima-password"
    ```
 
 4. **Run the application**:
@@ -67,6 +65,7 @@ Then open your browser to `http://localhost:8501`
 ### Environment Variables
 
 - `PROXIMA_HOST`: Base URL for the SafeInfer API (default: `http://localhost`)
+- `PEBBLO_API_KEY`: Pebblo API Key
 
 ### API Configuration
 
