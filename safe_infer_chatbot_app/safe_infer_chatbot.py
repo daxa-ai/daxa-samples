@@ -5,6 +5,8 @@ import json
 from typing import Dict, Any
 import time
 
+ 
+
 # Page configuration
 st.set_page_config(
     page_title="SafeInfer LLM Chatbot",
@@ -98,8 +100,7 @@ def call_safe_infer_api(message: str, model: str, api_key: str = "") -> Dict[str
     
     payload = {
         "model": model,
-        "input": message,
-        "app": "chatbot",
+        "input": message
     }
     
     try:
