@@ -5,6 +5,8 @@ import json
 from typing import Dict, Any
 import time
 
+ 
+
 # Page configuration
 st.set_page_config(
     page_title="SafeInfer LLM Chatbot",
@@ -98,8 +100,7 @@ def call_safe_infer_api(message: str, model: str, api_key: str = "") -> Dict[str
     
     payload = {
         "model": model,
-        "input": message,
-        "app": "chatbot",
+        "input": message
     }
     
     try:
@@ -191,14 +192,15 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     
     # Model selection
-    st.subheader("🤖 Model Selection")
     available_models = AVAILABLE_MODELS
-    selected_model = st.selectbox(
-        "Choose a model:",
-        available_models,
-        index=available_models.index(st.session_state.selected_model)
-    )
-    st.session_state.selected_model = selected_model
+    if available_models:
+        st.subheader("🤖 Model Selection")
+        selected_model = st.selectbox(
+            "Choose a model:",
+            available_models,
+            index=available_models.index(st.session_state.selected_model)
+        )
+        st.session_state.selected_model = selected_model
     
     # API connection test
     st.subheader("🔗 API Status")
