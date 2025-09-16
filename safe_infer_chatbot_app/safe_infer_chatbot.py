@@ -9,7 +9,7 @@ import time
 
 # Page configuration
 st.set_page_config(
-    page_title="SafeInfer LLM Chatbot",
+    page_title="Finance Ops Chatbot",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -64,6 +64,8 @@ from utils import get_available_models
 # API Configuration
 API_KEY = os.getenv("PEBBLO_API_KEY", "")
 API_BASE_URL = os.getenv("PROXIMA_HOST", "http://localhost")
+USER_EMAIL = os.getenv("USER_EMAIL", "User")
+USER_TEAM = os.getenv("USER_TEAM", "Finance Ops")
 RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/responses"
 LLM_PROVIDER_API_ENDPOINT = f"{API_BASE_URL}/api/llm/provider"
 AVAILABLE_MODELS, DEFAULT_MODEL = get_available_models()
@@ -182,8 +184,8 @@ def display_chat_message(role: str, content: str, model: str = "", timestamp: st
 # Main header
 st.markdown("""
 <div class="main-header">
-    <h1>🛡️ SafeInfer LLM Chatbot</h1>
-    <p>Secure and intelligent conversations powered by SafeInfer API</p>
+    <h1>🛡️ Finance Ops Chatbot</h1>
+    <p>Helpful assistant for Finance Ops team</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -236,6 +238,15 @@ with st.sidebar:
     st.subheader("📊 Statistics")
     st.metric("Messages", len(st.session_state.chat_history))
     st.metric("Current Model", st.session_state.selected_model)
+
+# Welcome message
+st.markdown(f"""
+<div class="chat-message bot-message">
+    <strong>🤖 AI Assistant:</strong><br>
+    Welcome {USER_EMAIL}. {USER_TEAM} team!
+</div>
+""", unsafe_allow_html=True)
+
 
 # Main chat interface
 st.subheader("💬 Chat Interface")
