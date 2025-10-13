@@ -70,6 +70,7 @@ RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/"
 LLM_PROVIDER_API_ENDPOINT = f"{API_BASE_URL}/api/llm/provider"
 SELECTED_MODEL = os.getenv("MODEL")
 X_PEBBLO_USER = os.getenv("X_PEBBLO_USER", None)
+MODEL_NAME = os.getenv("MODEL_NAME", SELECTED_MODEL)
 
 # Initialize session state
 if 'chat_history' not in st.session_state:
@@ -78,6 +79,8 @@ if 'selected_model' not in st.session_state:
     st.session_state.selected_model = SELECTED_MODEL
 if 'api_key' not in st.session_state:
     st.session_state.api_key = API_KEY
+if 'model_name' not in st.session_state:
+    st.session_state.model_name = MODEL_NAME
 
 def test_api_connection() -> Dict[str, Any]:
     """Test the API connection"""
@@ -174,7 +177,11 @@ with st.sidebar:
     # Statistics
     st.subheader("📊 Statistics")
     st.metric("Messages", len(st.session_state.chat_history))
-    st.metric("Current Model", st.session_state.selected_model)
+    st.markdown(f"""
+<div style="font-size:0.8rem;">
+    Current Model: <br><span style="font-size:1.2rem;"><b>{st.session_state.model_name}</b></span>
+</div>
+""", unsafe_allow_html=True)
 
 # Welcome message
 st.markdown(f"""
