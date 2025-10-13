@@ -170,7 +170,7 @@ with st.sidebar:
         st.download_button(
             label="📥 Export Chat",
             data=json.dumps(chat_data, indent=2),
-            file_name=f"safe_infer_chat_{time.strftime('%Y%m%d_%H%M%S')}.json",
+            file_name=f"finance_chatbot_{time.strftime('%Y%m%d_%H%M%S')}.json",
             mime="application/json"
         )
     
