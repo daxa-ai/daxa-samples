@@ -51,6 +51,9 @@ Then open your browser to `http://localhost:8501`
    ```bash
    export PEBBLO_API_KEY="pebblo-api-key"
    export PROXIMA_HOST="http://your-proxima-host"
+   export MODEL="model-name"
+   export X_PEBBLO_USER="user-email"
+   export MODEL_NAME="model-display-name"
    ```
 
 4. **Run the application**:
@@ -66,6 +69,9 @@ Then open your browser to `http://localhost:8501`
 
 - `PROXIMA_HOST`: Base URL for the SafeInfer API (default: `http://localhost`)
 - `PEBBLO_API_KEY`: Pebblo API Key
+-  `MODEL`: Model Name
+- `MODEL_NAME`: Model Display Name
+- `X_PEBBLO_USER`: User Email
 
 ### API Configuration
 
@@ -73,24 +79,16 @@ The application automatically configures the following endpoints:
 - **Responses**: `{PROXIMA_HOST}/safe_infer/llm/v1/responses`
 - **Health Check**: `{PROXIMA_HOST}/safe_infer/healthz`
 
-### Available Models
-
-- `gpt-4o-mini`: Faster, more cost-effective model
-- `gpt-4o`: Full GPT-4o model with enhanced capabilities
-
 ## 📖 Usage Guide
 
 ### Starting a Conversation
 
-1. **Select a Model**: Choose your preferred model from the sidebar
-2. **Enter API Key** (if required): Add your API key in the configuration section
-3. **Test Connection**: Use the "Test API Connection" button to verify connectivity
-4. **Start Chatting**: Type your message and click "Send" or press Enter
+1. **Test Connection**: Use the "Test API Connection" button to verify connectivity
+2. **Start Chatting**: Type your message and click "Send" or press Enter
 
 ### Chat Features
 
 - **Send Messages**: Type in the text area and click "🚀 Send"
-- **Regenerate Responses**: Click "🔄 Regenerate Last Response" to get a new AI response
 - **Clear History**: Use "Clear Chat History" to start fresh
 - **Export Chat**: Download your conversation as a JSON file
 
