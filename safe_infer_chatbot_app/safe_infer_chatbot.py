@@ -5,7 +5,7 @@ import json
 from typing import Dict, Any
 import time
 from openai import OpenAI
-
+from utils import get_available_models
  
 
 # Page configuration
@@ -63,14 +63,16 @@ st.markdown("""
 
 # API Configuration
 API_KEY = os.getenv("PEBBLO_API_KEY", "")
-API_BASE_URL = os.getenv("PROXIMA_HOST", "http://localhost")
+API_BASE_URL = os.getenv("PROXIMA_HOST", "https://pebblo-mcp-5.daxa.ai")
 USER_EMAIL = os.getenv("USER_EMAIL", "User")
 USER_TEAM = os.getenv("USER_TEAM", "Finance Ops")
 RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/"
 LLM_PROVIDER_API_ENDPOINT = f"{API_BASE_URL}/api/llm/provider"
-SELECTED_MODEL = os.getenv("MODEL")
+#SELECTED_MODEL = os.getenv("MODEL")
 X_PEBBLO_USER = os.getenv("X_PEBBLO_USER", None)
-MODEL_NAME = os.getenv("MODEL_NAME", SELECTED_MODEL)
+#MODEL_NAME = os.getenv("MODEL_NAME", SELECTED_MODEL)
+AVAILABLE_MODELS, DEFAULT_MODEL = get_available_models()
+SELECTED_MODEL = DEFAULT_MODEL
 
 # Initialize session state
 if 'chat_history' not in st.session_state:
@@ -80,7 +82,7 @@ if 'selected_model' not in st.session_state:
 if 'api_key' not in st.session_state:
     st.session_state.api_key = API_KEY
 if 'model_name' not in st.session_state:
-    st.session_state.model_name = MODEL_NAME
+    st.session_state.model_name = DEFAULT_MODEL
 
 def test_api_connection() -> Dict[str, Any]:
     """Test the API connection"""
@@ -182,6 +184,23 @@ with st.sidebar:
     Current Model: <br><span style="font-size:1.2rem;"><b>{st.session_state.model_name}</b></span>
 </div>
 """, unsafe_allow_html=True)
+with st.sidebar:
+    st.header("⚙️ Configuration")
+
+    # Model selection
+    available_models = AVAILABLE_MODELS
+    if available_models:
+        st.subheader("🤖 Model Selection")
+        selected_model = st.selectbox(
+            "Choose a model:",
+            available_models,
+            index=available_models.index(st.session_state.selected_model) if st.session_state.selected_model in available_models else 0
+        )
+        st.session_state.selected_model = selected_model
+        st.session_state.model_name = selected_model
+
+
+
 
 # Welcome message
 st.markdown(f"""
@@ -231,7 +250,7 @@ if send_button and user_input.strip():
     
     # Get AI response
     with st.spinner("🤖 AI is thinking..."):
-        model = SELECTED_MODEL
+        model = st.session_state.selected_model
 
         result = call_open_ai(
             message=user_input,
