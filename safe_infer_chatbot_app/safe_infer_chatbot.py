@@ -63,7 +63,7 @@ st.markdown("""
 
 # API Configuration
 API_KEY = os.getenv("PEBBLO_API_KEY", "")
-API_BASE_URL = os.getenv("PROXIMA_HOST", "https://pebblo-mcp-5.daxa.ai")
+API_BASE_URL = os.getenv("PROXIMA_HOST", "https://localhost:8000")
 USER_EMAIL = os.getenv("USER_EMAIL", "User")
 USER_TEAM = os.getenv("USER_TEAM", "Finance Ops")
 RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/"
