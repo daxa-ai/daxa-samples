@@ -7,7 +7,6 @@ import time
 from openai import OpenAI
 from utils import get_available_models
  
-
 # Page configuration
 st.set_page_config(
     page_title="Finance Ops Chatbot",
@@ -63,7 +62,7 @@ st.markdown("""
 
 # API Configuration
 API_KEY = os.getenv("PEBBLO_API_KEY", "")
-API_BASE_URL = os.getenv("PROXIMA_HOST", "https://localhost:8000")
+API_BASE_URL = os.getenv("PROXIMA_HOST", "http://localhost")
 USER_EMAIL = os.getenv("USER_EMAIL", "User")
 USER_TEAM = os.getenv("USER_TEAM", "Finance Ops")
 RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/"
@@ -98,21 +97,29 @@ def test_api_connection() -> Dict[str, Any]:
         return {"status": "error", "message": f"Error: {str(e)}"}
 
 def call_open_ai(message: str, model: str, api_key: str = "") -> Dict[str, Any]:
+    response = None
     try:
+        
         default_headers = {"X-PEBBLO-USER": X_PEBBLO_USER} if X_PEBBLO_USER else None
+        model = f"openai/{model}"
         client = OpenAI(
             base_url=RESPONSE_API_ENDPOINT,
             api_key=api_key,
             default_headers=default_headers
         )
+
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": message}]
         )
         
-        return {"status": "success", "data": response.choices[0].message.content}
+        return {"status": "success", "data": response.choices[0].message.content, "response": response}
     except Exception as e:
-        return {"status": "error", "message": f"Error: {str(e)}"}
+        print(f"Error: {str(e)}")
+        print()
+        if "Error code: 452" in str(e):
+            return {"status": "error", "message": "Model not available", "data": "Response is blocked because of policy."}
+        return {"status": "error", "message": f"Error: {str(e)}", }
 
 def display_chat_message(role: str, content: str, model: str = "", timestamp: str = ""):
     """Display a chat message with proper styling"""
