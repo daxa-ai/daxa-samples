@@ -1,45 +1,40 @@
-# 🛡️ SafeInfer LLM Chatbot
+# SafeInfer LLM Chatbot
 
-A secure and intelligent chatbot application powered by the SafeInfer LLM API. This Streamlit-based web application provides a user-friendly interface for interacting with large language models while ensuring safety and security through SafeInfer's content filtering and classification capabilities.
+A secure chatbot application powered by the SafeInfer LLM API. This Streamlit app offers a **Demo** environment (main page) and a **Test** environment (at `/test`) where you can choose API type, streaming, and model.
 
-## ✨ Features
+## Features
 
-- **🔒 Secure Conversations**: Powered by SafeInfer API with built-in content safety filtering
-- **🤖 Multiple Model Support**: Choose between GPT-4o and GPT-4o-mini models
-- **💬 Interactive Chat Interface**: Clean, modern UI with real-time conversation flow
-- **📊 Response Analysis**: View detailed classification and safety analysis of AI responses
-- **🔄 Regeneration**: Regenerate the last AI response with a single click
-- **📥 Chat Export**: Export your conversation history in JSON format
-- **🔗 API Health Monitoring**: Test API connectivity and status
-- **⚙️ Configurable Settings**: Customize API keys, models, and preferences
-- **📱 Responsive Design**: Works seamlessly on desktop and mobile devices
+- **Demo (main page)**: Env-based config; single model and non-streaming completions
+- **Test (`/test`)**: Choose **API Type** (completions / responses), **Stream** (True / False), and **Model** (from API) in the sidebar; OpenAI API calls use these selections
+- **Secure conversations**: SafeInfer API with content safety
+- **Interactive chat**: Clean UI with conversation history
+- **Response analysis**: Optional classification/safety view when the API returns it
+- **Chat export**: Export conversation as JSON
+- **API health**: Test API connection from the sidebar
+- **Responsive**: Works on desktop and mobile
 
-## ⚡ Quick Run
-
-To run the application immediately:
+## Quick Run
 
 ```bash
-cd safeinfer_chatbot_app
+cd safe_infer_chatbot_app
 pip install -r requirements.txt
 streamlit run safe_infer_chatbot.py
 ```
 
-Then open your browser to `http://localhost:8501`
+Open `http://localhost:8501` for the **Demo** page. For the **Test** page, open `http://localhost:8501/test` (the Test link is hidden from the sidebar; use the URL).
 
-## 🚀 Quick Start
+## Prerequisites
 
-### Prerequisites
+- Python 3.8+
+- SafeInfer API (default base: `http://localhost`)
+- API key (set via env; see Configuration)
 
-- Python 3.8 or higher
-- SafeInfer API service running (default: `http://localhost`)
-- API key (optional, depending on your SafeInfer setup)
+## Installation
 
-### Installation
-
-1. **Clone the repository** (if not already done):
+1. **Clone and enter the app directory**:
    ```bash
    git clone <repository-url>
-   cd daxa-samples/safeinfer_chatbot_app
+   cd daxa-samples/safe_infer_chatbot_app
    ```
 
 2. **Install dependencies**:
@@ -47,144 +42,97 @@ Then open your browser to `http://localhost:8501`
    pip install -r requirements.txt
    ```
 
-3. **Set up environment variables** (optional):
-   ```bash
-   export PEBBLO_API_KEY="pebblo-api-key"
-   export PROXIMA_HOST="http://your-proxima-host"
-   export MODEL="model-name"
-   export X_PEBBLO_USER="user-email"
-   export MODEL_NAME="model-display-name"
-   ```
+3. **Set environment variables** (see Configuration below).
 
-4. **Run the application**:
+4. **Run the app**:
    ```bash
    streamlit run safe_infer_chatbot.py
    ```
 
-5. **Open your browser** and navigate to `http://localhost:8501`
+5. Open `http://localhost:8501` for Demo, or `http://localhost:8501/test` for Test.
 
-## 🛠️ Configuration
+## Configuration
 
 ### Environment Variables
 
-- `PROXIMA_HOST`: Base URL for the SafeInfer API (default: `http://localhost`)
-- `PEBBLO_API_KEY`: Pebblo API Key
--  `MODEL`: Model Name
-- `MODEL_NAME`: Model Display Name
-- `X_PEBBLO_USER`: User Email
+| Variable         | Description                                  |
+|------------------|----------------------------------------------|
+| `PROXIMA_HOST`   | SafeInfer API base URL (default: `http://localhost`) |
+| `PEBBLO_API_KEY` | Pebblo API key                               |
+| `MODEL`          | Default model (Demo page and fallback)       |
+| `MODEL_NAME`     | Display name for the model                   |
+| `USER_EMAIL`     | User email (e.g. for welcome message)       |
+| `USER_TEAM`      | User team (e.g. for welcome message)         |
+| `X_PEBBLO_USER`  | Pebblo user (sent in API headers)           |
 
-### API Configuration
+### API Endpoints
 
-The application automatically configures the following endpoints:
-- **Responses**: `{PROXIMA_HOST}/safe_infer/llm/v1/responses`
-- **Health Check**: `{PROXIMA_HOST}/safe_infer/healthz`
+- **Completions**: `{PROXIMA_HOST}/safe_infer/llm/v1/` (OpenAI-compatible chat completions)
+- **Responses**: same base; Responses API via `client.responses`
+- **Models list**: `{PROXIMA_HOST}/safe_infer/llm/v1/models`
+- **Health**: `{PROXIMA_HOST}/safe_infer/healthz`
 
-## 📖 Usage Guide
+## Usage
 
-### Starting a Conversation
+### Demo (main page)
 
-1. **Test Connection**: Use the "Test API Connection" button to verify connectivity
-2. **Start Chatting**: Type your message and click "Send" or press Enter
+- Uses `MODEL`, `PEBBLO_API_KEY`, and `PROXIMA_HOST` from the environment.
+- Chat uses **completions** API, non-streaming.
+- Sidebar: API Status, Chat Management (clear/export), Statistics.
 
-### Chat Features
+### Test (`/test`)
 
-- **Send Messages**: Type in the text area and click "🚀 Send"
-- **Clear History**: Use "Clear Chat History" to start fresh
-- **Export Chat**: Download your conversation as a JSON file
+- Open **`http://localhost:8501/test`** (link is not shown in the sidebar).
+- **Sidebar – Test Settings**:
+  - **API Type**: `completions` or `responses`
+  - **Stream**: `True` or `False`
+  - **Model**: dropdown from `/safe_infer/llm/v1/models`, or fallback text input if the API fails
+  - **Refresh models**: reload model list
+- All OpenAI-style API calls use the selected API type, model, and stream.
+- Sidebar also has API Status, Chat Management, and Statistics (including current API type, stream, and model).
 
-### Response Analysis
+### General
 
-When the AI responds, you can expand the "🔍 Response Analysis" section to view:
-- Content classification
-- Safety scores
-- Risk assessments
-- Detailed metadata
+- **Test API Connection**: in the sidebar, to check connectivity.
+- **Clear Chat History**: resets the current conversation.
+- **Export Chat**: downloads the current conversation as JSON.
 
-## 🔧 Advanced Configuration
-
-### Customizing the Application
-
-Edit `config.py` to modify:
-- Default models and settings
-- UI styling and colors
-- Error messages and timeouts
-- Export formats and file naming
-
-### API Integration
-
-The application sends requests with the following structure:
-```json
-{
-  "model": "gpt-4o-mini",
-  "input": "Your message here",
-  "app": "safe_infer_chatbot"
-}
-```
-
-## 📁 Project Structure
+## Project Structure
 
 ```
-safeinfer_chatbot_app/
-├── safe_infer_chatbot.py    # Main application file
-├── config.py               # Configuration settings
-├── requirements.txt        # Python dependencies
-├── __init__.py            # Package initialization
-└── README.md              # This file
+safe_infer_chatbot_app/
+├── safe_infer_chatbot.py   # Main app (Demo page)
+├── pages/
+│   └── test.py             # Test page (/test)
+├── utils.py                # Shared config, API helpers, UI helpers
+├── requirements.txt
+├── README.md
+└── .env                    # Optional; use export for env vars
 ```
 
-## 🔍 Troubleshooting
+- **utils.py**: `get_available_models`, `call_llm` (completions/responses, stream on/off), `display_chat_message`, `test_api_connection`, and shared CSS/config.
 
-### Common Issues
+## Troubleshooting
 
-1. **Connection Error**: 
-   - Ensure SafeInfer API is running
-   - Check `PROXIMA_HOST` environment variable
-   - Verify network connectivity
+1. **Connection errors**
+   - Confirm SafeInfer API is running and `PROXIMA_HOST` is correct.
+   - Use “Test API Connection” in the sidebar.
 
-2. **API Key Issues**:
-   - Confirm API key is correct
-   - Check if API key is required for your setup
+2. **API key**
+   - Set `PEBBLO_API_KEY` (and `X_PEBBLO_USER` if required).
 
-3. **Model Not Available**:
-   - Verify the model name is supported
-   - Check API service configuration
+3. **No models on Test page**
+   - Ensure `PROXIMA_HOST` and `PEBBLO_API_KEY` are set.
+   - Use “Refresh models” or the Model fallback text input.
 
-4. **Timeout Errors**:
-   - Increase timeout in config.py
-   - Check API service performance
+4. **Debug**
+   - `export STREAMLIT_LOG_LEVEL=debug`
 
-### Debug Mode
+## Support
 
-To enable debug logging, add this to your environment:
-```bash
-export STREAMLIT_LOG_LEVEL=debug
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📄 License
-
-This project is part of the daxa-samples repository. Please refer to the main repository for license information.
-
-## 🆘 Support
-
-For issues related to:
-- **SafeInfer API**: Contact your SafeInfer service provider
-- **Application Bugs**: Open an issue in the repository
-- **Configuration**: Check the config.py file and documentation
-
-## 🔗 Related Resources
-
-- [SafeInfer Documentation](https://docs.safeinfer.com)
-- [Streamlit Documentation](https://docs.streamlit.io)
-- [OpenAI API Documentation](https://platform.openai.com/docs)
+- **SafeInfer API**: Contact your SafeInfer provider.
+- **App issues**: Open an issue in the repository.
 
 ---
 
-**🛡️ Powered by SafeInfer LLM API | Secure • Intelligent • Reliable**
+**Powered by SafeInfer LLM API | Secure • Intelligent • Reliable**
