@@ -1,159 +1,75 @@
-import os
-import streamlit as st
-import requests
 import json
-from typing import Dict, Any
 import time
+from typing import Dict, Any
+
+import streamlit as st
 from openai import OpenAI
-from utils import get_available_models
- 
+
+from utils import (
+    API_KEY,
+    CUSTOM_CSS,
+    FOOTER_HTML,
+    MAIN_HEADER_HTML,
+    MODEL_NAME,
+    RESPONSE_API_ENDPOINT,
+    SELECTED_MODEL,
+    X_PEBBLO_USER,
+    display_chat_message,
+    get_welcome_html,
+    load_prompts_from_yaml,
+    test_api_connection,
+)
+
 # Page configuration
 st.set_page_config(
     page_title="Finance Ops Chatbot",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# Custom CSS for better styling
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .chat-message {
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 0.5rem 0;
-    }
-    .user-message {
-        background-color: #e3f2fd;
-        border-left: 4px solid #2196f3;
-    }
-    .bot-message {
-        background-color: #f3e5f5;
-        border-left: 4px solid #9c27b0;
-    }
-    .model-info {
-        background-color: #fff3e0;
-        padding: 0.5rem;
-        border-radius: 5px;
-        font-size: 0.8rem;
-        color: #e65100;
-    }
-    .stButton > button {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 5px;
-        padding: 0.5rem 1rem;
-    }
-    .stButton > button:hover {
-        background: linear-gradient(90deg, #5a6fd8 0%, #6a4190 100%);
-    }
-</style>
-""", unsafe_allow_html=True)
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-
-# API Configuration
-API_KEY = os.getenv("PEBBLO_API_KEY", "")
-API_BASE_URL = os.getenv("PROXIMA_HOST", "http://localhost")
-USER_EMAIL = os.getenv("USER_EMAIL", "User")
-USER_TEAM = os.getenv("USER_TEAM", "Finance Ops")
-RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/"
-LLM_PROVIDER_API_ENDPOINT = f"{API_BASE_URL}/api/llm/provider"
-#SELECTED_MODEL = os.getenv("MODEL")
-X_PEBBLO_USER = os.getenv("X_PEBBLO_USER", None)
-#MODEL_NAME = os.getenv("MODEL_NAME", SELECTED_MODEL)
-AVAILABLE_MODELS, DEFAULT_MODEL = get_available_models()
-SELECTED_MODEL = DEFAULT_MODEL
+# Load language-based prompts from YAML (prompts.yaml)
+LANGUAGE_PROMPTS = load_prompts_from_yaml()
+DEFAULT_LANGUAGE = "en" if "en" in LANGUAGE_PROMPTS else (list(LANGUAGE_PROMPTS.keys())[0] if LANGUAGE_PROMPTS else "en")
 
 # Initialize session state
-if 'chat_history' not in st.session_state:
+if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-if 'selected_model' not in st.session_state:
+if "selected_model" not in st.session_state:
     st.session_state.selected_model = SELECTED_MODEL
-if 'api_key' not in st.session_state:
+if "api_key" not in st.session_state:
     st.session_state.api_key = API_KEY
-if 'model_name' not in st.session_state:
-    st.session_state.model_name = DEFAULT_MODEL
+if "model_name" not in st.session_state:
+    st.session_state.model_name = MODEL_NAME
+if "prompt_language" not in st.session_state:
+    st.session_state.prompt_language = DEFAULT_LANGUAGE
 
-def test_api_connection() -> Dict[str, Any]:
-    """Test the API connection"""
-    try:
-        response = requests.get(f"{API_BASE_URL}/safe_infer/healthz", timeout=5)
-        if response.status_code == 200:
-            return {"status": "success", "message": "API is accessible"}
-        else:
-            return {"status": "error", "message": f"API returned status {response.status_code}"}
-    except requests.exceptions.ConnectionError:
-        return {"status": "error", "message": "Cannot connect to API. Please ensure the service is running."}
-    except Exception as e:
-        return {"status": "error", "message": f"Error: {str(e)}"}
 
 def call_open_ai(message: str, model: str, api_key: str = "") -> Dict[str, Any]:
-    response = None
+    """Call OpenAI-compatible completions API (non-streaming) for Demo."""
     try:
-        
         default_headers = {"X-PEBBLO-USER": X_PEBBLO_USER} if X_PEBBLO_USER else None
-        model = f"openai/{model}"
         client = OpenAI(
             base_url=RESPONSE_API_ENDPOINT,
             api_key=api_key,
-            default_headers=default_headers
+            default_headers=default_headers,
         )
-
         response = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": message}]
+            messages=[{"role": "user", "content": message}],
         )
-        
-        return {"status": "success", "data": response.choices[0].message.content, "response": response}
+        return {"status": "success", "data": response.choices[0].message.content}
     except Exception as e:
-        print(f"Error: {str(e)}")
-        print()
-        if "Error code: 452" in str(e):
-            return {"status": "error", "message": "Model not available", "data": "Response is blocked because of policy."}
-        return {"status": "error", "message": f"Error: {str(e)}", }
+        return {"status": "error", "message": f"Error: {str(e)}"}
 
-def display_chat_message(role: str, content: str, model: str = "", timestamp: str = ""):
-    """Display a chat message with proper styling"""
-    if role == "user":
-        st.markdown(f"""
-        <div class="chat-message user-message">
-            <strong>👤 You:</strong><br>
-            {content}
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-        <div class="chat-message bot-message">
-            <strong>🤖 AI Assistant:</strong><br>
-            {content}
-            <div class="model-info">
-                Model: {model} | {timestamp}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
 
 # Main header
-st.markdown("""
-<div class="main-header">
-    <h1>🛡️ Finance Ops Chatbot</h1>
-    <p>Helpful assistant for Finance Ops team</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(MAIN_HEADER_HTML, unsafe_allow_html=True)
 
 # Sidebar configuration
 with st.sidebar:
-    
-    
-    # API connection test
     st.subheader("🔗 API Status")
     if st.button("Test API Connection"):
         with st.spinner("Testing connection..."):
@@ -162,152 +78,148 @@ with st.sidebar:
                 st.success(result["message"])
             else:
                 st.error(result["message"])
-    
-    # Chat management
+
     st.subheader("💬 Chat Management")
     if st.button("Clear Chat History"):
         st.session_state.chat_history = []
+        if "user_input" in st.session_state:
+            st.session_state.user_input = ""
         st.rerun()
-    
-    # Export chat
+
+    st.subheader("🌐 Prompt language")
+    lang_options = list(LANGUAGE_PROMPTS.keys()) if LANGUAGE_PROMPTS else [DEFAULT_LANGUAGE]
+    try:
+        lang_index = lang_options.index(st.session_state.prompt_language)
+    except ValueError:
+        lang_index = 0
+        st.session_state.prompt_language = lang_options[0] if lang_options else DEFAULT_LANGUAGE
+    selected_lang = st.selectbox(
+        "Language",
+        options=lang_options,
+        index=lang_index,
+        key="prompt_language_select",
+        label_visibility="collapsed",
+    )
+    st.session_state.prompt_language = selected_lang
+
+    st.subheader("📝 Sample Prompts")
+    prompts_for_lang = LANGUAGE_PROMPTS.get(selected_lang, [])
+    for i, prompt in enumerate(prompts_for_lang):
+        label = prompt.get("label", "")
+        copyable_text = prompt.get("copyable", "")
+        st.markdown('<span class="prompt-use-btn-marker"></span>', unsafe_allow_html=True)
+        col_cap, col_btn = st.columns([3, 1])
+        with col_cap:
+            st.caption(f"**{label}**")
+        with col_btn:
+            if st.button("→", key=f"use_prompt_{selected_lang}_{i}", help="Copy to message box"):
+                st.session_state.user_input = copyable_text
+                st.rerun()
+        st.text_area(
+            "Prompt",
+            value=copyable_text,
+            height=min(120, 60 + copyable_text.count("\n") * 24),
+            disabled=True,
+            key=f"sidebar_prompt_{selected_lang}_{i}",
+            label_visibility="collapsed",
+        )
+
     if st.session_state.chat_history:
         chat_data = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "model": st.session_state.selected_model,
-            "conversation": st.session_state.chat_history
+            "conversation": st.session_state.chat_history,
         }
         st.download_button(
             label="📥 Export Chat",
             data=json.dumps(chat_data, indent=2),
             file_name=f"finance_chatbot_{time.strftime('%Y%m%d_%H%M%S')}.json",
-            mime="application/json"
+            mime="application/json",
         )
-    
-    # Statistics
+
     st.subheader("📊 Statistics")
     st.metric("Messages", len(st.session_state.chat_history))
-    st.markdown(f"""
+    st.markdown(
+        f"""
 <div style="font-size:0.8rem;">
     Current Model: <br><span style="font-size:1.2rem;"><b>{st.session_state.model_name}</b></span>
 </div>
-""", unsafe_allow_html=True)
-with st.sidebar:
-    st.header("⚙️ Configuration")
-
-    # Model selection
-    available_models = AVAILABLE_MODELS
-    if available_models:
-        st.subheader("🤖 Model Selection")
-        selected_model = st.selectbox(
-            "Choose a model:",
-            available_models,
-            index=available_models.index(st.session_state.selected_model) if st.session_state.selected_model in available_models else 0
-        )
-        st.session_state.selected_model = selected_model
-        st.session_state.model_name = selected_model
-
-
-
+""",
+        unsafe_allow_html=True,
+    )
 
 # Welcome message
-st.markdown(f"""
-<div class="chat-message bot-message">
-    <strong>🤖 AI Assistant:</strong><br>
-    Welcome {USER_EMAIL}. {USER_TEAM} team!
-</div>
-""", unsafe_allow_html=True)
-
+st.markdown(get_welcome_html(), unsafe_allow_html=True)
 
 # Main chat interface
 st.subheader("💬 Chat Interface")
 
-# Display chat history
 for message in st.session_state.chat_history:
     display_chat_message(
         role=message["role"],
         content=message["content"],
         model=message.get("model", ""),
-        timestamp=message.get("timestamp", "")
+        timestamp=message.get("timestamp", ""),
     )
 
-# User input
 user_input = st.text_area(
     "Type your message here:",
     height=100,
     placeholder="Ask me anything! I'm powered by SafeInfer LLM API.",
-    key="user_input"
+    key="user_input",
 )
 
-# Send button
 col1, col2 = st.columns([1, 4])
 with col1:
     send_button = st.button("🚀 Send", type="primary")
 
-# Process user input
 if send_button and user_input.strip():
-    # Add user message to history
     st.session_state.chat_history.append({
         "role": "user",
         "content": user_input,
-        "timestamp": time.strftime("%H:%M:%S")
+        "timestamp": time.strftime("%H:%M:%S"),
     })
-    
-    # Display user message
     display_chat_message("user", user_input)
-    
-    # Get AI response
-    with st.spinner("🤖 AI is thinking..."):
-        model = st.session_state.selected_model
 
+    with st.spinner("🤖 AI is thinking..."):
+        model = SELECTED_MODEL
         result = call_open_ai(
             message=user_input,
             model=model,
-            api_key=st.session_state.api_key
+            api_key=st.session_state.api_key,
         )
-        result = {"status": "success", "data": result}
-    if result["status"] == "success":
-        # Extract response content
-        response = result['data']['data']
 
+    if result["status"] == "success":
+        response = result["data"]
+        print(f"RESPONSE: {response}")
         st.session_state.chat_history.append({
             "role": "assistant",
             "content": response,
             "model": st.session_state.selected_model,
-            "timestamp": time.strftime("%H:%M:%S")
+            "timestamp": time.strftime("%H:%M:%S"),
         })
-        
-        # Display bot response
         display_chat_message(
-            "assistant", 
+            "assistant",
             response,
             st.session_state.selected_model,
-            time.strftime("%H:%M:%S")
+            time.strftime("%H:%M:%S"),
         )
-        
-        # Show classification info if available
-        if 'response' in result["data"] and isinstance(result["data"]["response"], dict):
+        if isinstance(result.get("data"), dict) and "response" in result["data"]:
             response_data = result["data"]["response"]
-            if 'classification' in response_data:
-                classification = response_data['classification']
+            if isinstance(response_data, dict) and "classification" in response_data:
                 with st.expander("🔍 Response Analysis"):
-                    st.json(classification)
-    
+                    st.json(response_data["classification"])
     else:
         error_message = f"❌ Error: {result['message']}"
         st.error(error_message)
         st.session_state.chat_history.append({
             "role": "assistant",
             "content": error_message,
-            "timestamp": time.strftime("%H:%M:%S")
+            "timestamp": time.strftime("%H:%M:%S"),
         })
-    
-    # Clear input and rerun to refresh the UI
+
     st.rerun()
 
 # Footer
 st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #666; font-size: 0.8rem;">
-    <p>🛡️ Powered by SafeInfer LLM API | Secure • Intelligent • Reliable</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(FOOTER_HTML, unsafe_allow_html=True)
