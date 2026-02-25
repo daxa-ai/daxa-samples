@@ -1,8 +1,9 @@
 """Shared utilities and config for SafeInfer chatbot app (Demo and Test)."""
 import os
-from typing import Dict, Any, Generator
+from typing import Any, Dict, Generator, List
 
 import requests
+import yaml
 from openai import OpenAI
 
 # Load .env from app directory if present (before reading any env vars)
@@ -66,6 +67,19 @@ CUSTOM_CSS = """
     div[data-testid="stSidebarNav"] {
         display: none !important;
     }
+    /* Sidebar sample prompt text areas: code-like appearance */
+    [data-testid="stSidebar"] textarea[disabled] {
+        font-family: ui-monospace, monospace !important;
+        font-size: 0.85rem !important;
+        background-color: #f6f8fa !important;
+    }
+    /* Smaller "Use" (→) button next to sample prompts */
+    [data-testid="stSidebar"] .prompt-use-btn-marker { display: none; }
+    [data-testid="stSidebar"] .prompt-use-btn-marker + div .stButton > button {
+        min-height: 1.5rem !important;
+        padding: 0.15rem 0.4rem !important;
+        font-size: 0.875rem !important;
+    }
 </style>
 """
 
@@ -81,6 +95,44 @@ FOOTER_HTML = """
     <p>🛡️ Powered by SafeInfer LLM API | Secure • Intelligent • Reliable</p>
 </div>
 """
+
+_PROMPTS_PATH = os.path.join(os.path.dirname(__file__), "prompts.yaml")
+
+
+def load_prompts_from_yaml(path: str = None) -> Dict[str, List[Dict[str, str]]]:
+    """Load language-based prompts from a YAML file.
+
+    YAML structure: top-level keys are language codes (e.g. en, ko); each value
+    is a list of prompts with keys: label, full_text, copyable.
+
+    Returns:
+        Dict mapping language code -> list of {label, full_text, copyable}.
+        Empty dict if file is missing or invalid.
+    """
+    path = path or _PROMPTS_PATH
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except (yaml.YAMLError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(lang): _normalize_prompt_list(prompts) for lang, prompts in data.items() if prompts}
+
+
+def _normalize_prompt_list(prompts: Any) -> List[Dict[str, str]]:
+    """Ensure each prompt has label, full_text, copyable (strings)."""
+    result = []
+    for p in prompts if isinstance(prompts, list) else []:
+        if not isinstance(p, dict):
+            continue
+        label = p.get("label") or ""
+        full_text = p.get("full_text") or ""
+        copyable = p.get("copyable") or full_text
+        result.append({"label": str(label), "full_text": str(full_text), "copyable": str(copyable)})
+    return result
 
 
 def test_api_connection(api_base_url: str = None) -> Dict[str, Any]:

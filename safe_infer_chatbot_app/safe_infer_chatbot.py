@@ -16,6 +16,7 @@ from utils import (
     X_PEBBLO_USER,
     display_chat_message,
     get_welcome_html,
+    load_prompts_from_yaml,
     test_api_connection,
 )
 
@@ -29,6 +30,10 @@ st.set_page_config(
 
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
+# Load language-based prompts from YAML (prompts.yaml)
+LANGUAGE_PROMPTS = load_prompts_from_yaml()
+DEFAULT_LANGUAGE = "en" if "en" in LANGUAGE_PROMPTS else (list(LANGUAGE_PROMPTS.keys())[0] if LANGUAGE_PROMPTS else "en")
+
 # Initialize session state
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -38,6 +43,8 @@ if "api_key" not in st.session_state:
     st.session_state.api_key = API_KEY
 if "model_name" not in st.session_state:
     st.session_state.model_name = MODEL_NAME
+if "prompt_language" not in st.session_state:
+    st.session_state.prompt_language = DEFAULT_LANGUAGE
 
 
 def call_open_ai(message: str, model: str, api_key: str = "") -> Dict[str, Any]:
@@ -75,7 +82,47 @@ with st.sidebar:
     st.subheader("💬 Chat Management")
     if st.button("Clear Chat History"):
         st.session_state.chat_history = []
+        if "user_input" in st.session_state:
+            st.session_state.user_input = ""
         st.rerun()
+
+    st.subheader("🌐 Prompt language")
+    lang_options = list(LANGUAGE_PROMPTS.keys()) if LANGUAGE_PROMPTS else [DEFAULT_LANGUAGE]
+    try:
+        lang_index = lang_options.index(st.session_state.prompt_language)
+    except ValueError:
+        lang_index = 0
+        st.session_state.prompt_language = lang_options[0] if lang_options else DEFAULT_LANGUAGE
+    selected_lang = st.selectbox(
+        "Language",
+        options=lang_options,
+        index=lang_index,
+        key="prompt_language_select",
+        label_visibility="collapsed",
+    )
+    st.session_state.prompt_language = selected_lang
+
+    st.subheader("📝 Sample Prompts")
+    prompts_for_lang = LANGUAGE_PROMPTS.get(selected_lang, [])
+    for i, prompt in enumerate(prompts_for_lang):
+        label = prompt.get("label", "")
+        copyable_text = prompt.get("copyable", "")
+        st.markdown('<span class="prompt-use-btn-marker"></span>', unsafe_allow_html=True)
+        col_cap, col_btn = st.columns([3, 1])
+        with col_cap:
+            st.caption(f"**{label}**")
+        with col_btn:
+            if st.button("→", key=f"use_prompt_{selected_lang}_{i}", help="Copy to message box"):
+                st.session_state.user_input = copyable_text
+                st.rerun()
+        st.text_area(
+            "Prompt",
+            value=copyable_text,
+            height=min(120, 60 + copyable_text.count("\n") * 24),
+            disabled=True,
+            key=f"sidebar_prompt_{selected_lang}_{i}",
+            label_visibility="collapsed",
+        )
 
     if st.session_state.chat_history:
         chat_data = {
