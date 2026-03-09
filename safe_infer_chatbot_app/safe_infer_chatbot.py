@@ -14,6 +14,7 @@ from utils import (
     RESPONSE_API_ENDPOINT,
     SELECTED_MODEL,
     X_PEBBLO_USER,
+    X_PEBBLO_USER_GROUPS,
     display_chat_message,
     get_welcome_html,
     load_prompts_from_yaml,
@@ -50,7 +51,13 @@ if "prompt_language" not in st.session_state:
 def call_open_ai(message: str, model: str, api_key: str = "") -> Dict[str, Any]:
     """Call OpenAI-compatible completions API (non-streaming) for Demo."""
     try:
-        default_headers = {"X-PEBBLO-USER": X_PEBBLO_USER} if X_PEBBLO_USER else None
+        default_headers = {}
+        if X_PEBBLO_USER:
+            default_headers["X-PEBBLO-USER"] = X_PEBBLO_USER
+        if X_PEBBLO_USER_GROUPS:
+            default_headers["X-PEBBLO-USER-GROUPS"] = X_PEBBLO_USER_GROUPS
+        default_headers = default_headers or None
+
         client = OpenAI(
             base_url=RESPONSE_API_ENDPOINT,
             api_key=api_key,

@@ -21,6 +21,7 @@ RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/"
 LLM_PROVIDER_API_ENDPOINT = f"{API_BASE_URL}/api/llm/provider"
 SELECTED_MODEL = os.getenv("MODEL")
 X_PEBBLO_USER = os.getenv("X_PEBBLO_USER", None)
+X_PEBBLO_USER_GROUPS = os.getenv("X_PEBBLO_USER_GROUPS", None)
 MODEL_NAME = os.getenv("MODEL_NAME", SELECTED_MODEL)
 
 CUSTOM_CSS = """
@@ -238,7 +239,12 @@ def get_available_models():
 def _get_client(api_key: str = None):
     """Build OpenAI client with shared config."""
     key = api_key or API_KEY
-    default_headers = {"X-PEBBLO-USER": X_PEBBLO_USER} if X_PEBBLO_USER else None
+    default_headers = {}
+    if X_PEBBLO_USER:
+        default_headers["X-PEBBLO-USER"] = X_PEBBLO_USER
+    if X_PEBBLO_USER_GROUPS:
+        default_headers["X-PEBBLO-USER-GROUPS"] = X_PEBBLO_USER_GROUPS
+    default_headers = default_headers or None
     return OpenAI(
         base_url=RESPONSE_API_ENDPOINT,
         api_key=key,
