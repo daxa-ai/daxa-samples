@@ -10,16 +10,21 @@ from utils import (
     CUSTOM_CSS,
     FOOTER_HTML,
     MAIN_HEADER_HTML,
-    MODEL_NAME,
     RESPONSE_API_ENDPOINT,
-    SELECTED_MODEL,
     X_PEBBLO_USER,
     X_PEBBLO_USER_GROUPS,
     display_chat_message,
+    get_available_models,
     get_welcome_html,
     load_prompts_from_yaml,
     test_api_connection,
 )
+
+
+@st.cache_data(ttl=300)
+def fetch_models():
+    """Fetch models from GET .../v1/models (cached 5 min). Returns (names, default_id)."""
+    return get_available_models()
 
 # Page configuration
 st.set_page_config(
@@ -38,12 +43,13 @@ DEFAULT_LANGUAGE = "en" if "en" in LANGUAGE_PROMPTS else (list(LANGUAGE_PROMPTS.
 # Initialize session state
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+# Model is chosen from /v1/models dropdown or manual entry only (no env)
 if "selected_model" not in st.session_state:
-    st.session_state.selected_model = SELECTED_MODEL
+    st.session_state.selected_model = ""
 if "api_key" not in st.session_state:
     st.session_state.api_key = API_KEY
 if "model_name" not in st.session_state:
-    st.session_state.model_name = MODEL_NAME
+    st.session_state.model_name = ""
 if "prompt_language" not in st.session_state:
     st.session_state.prompt_language = DEFAULT_LANGUAGE
 
@@ -85,6 +91,41 @@ with st.sidebar:
                 st.success(result["message"])
             else:
                 st.error(result["message"])
+
+    st.subheader("🤖 Model")
+    model_names, default_model = fetch_models()
+    if model_names:
+        try:
+            current = st.session_state.get("selected_model") or default_model
+            if current not in model_names:
+                current = default_model or model_names[0]
+            idx = model_names.index(current) if current in model_names else 0
+        except (ValueError, TypeError):
+            idx = 0
+        selected_model = st.selectbox(
+            "Model",
+            model_names,
+            index=idx,
+            key="sidebar_model_select",
+            label_visibility="collapsed",
+        )
+        st.session_state.selected_model = selected_model
+        st.session_state.model_name = selected_model
+    else:
+        st.warning("Could not load models from API. Enter a model ID below.")
+        fallback = st.session_state.get("selected_model") or ""
+        manual = st.text_input(
+            "Model ID",
+            value=fallback,
+            key="sidebar_model_manual",
+            placeholder="Enter model id",
+        )
+        if manual.strip():
+            st.session_state.selected_model = manual.strip()
+            st.session_state.model_name = manual.strip()
+    if st.button("Refresh models", key="refresh_models_main"):
+        fetch_models.clear()
+        st.rerun()
 
     st.subheader("💬 Chat Management")
     if st.button("Clear Chat History"):
@@ -189,7 +230,10 @@ if send_button and user_input.strip():
     display_chat_message("user", user_input)
 
     with st.spinner("🤖 AI is thinking..."):
-        model = SELECTED_MODEL
+        model = (st.session_state.get("selected_model") or "").strip()
+        if not model:
+            st.error("No model selected. Load models from API or enter a model ID.")
+            st.stop()
         result = call_open_ai(
             message=user_input,
             model=model,
