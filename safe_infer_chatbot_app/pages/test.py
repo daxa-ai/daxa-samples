@@ -9,7 +9,6 @@ from utils import (
     CUSTOM_CSS,
     FOOTER_HTML,
     MAIN_HEADER_HTML,
-    SELECTED_MODEL,
     USER_EMAIL,
     USER_TEAM,
     call_llm,
@@ -45,7 +44,7 @@ with st.sidebar:
         model_names = []
         default_model = ""
     if not model_names:
-        st.warning("Could not load models. Check API and env.")
+        st.warning("Could not load models. Check API or enter a model ID below.")
         selected_model = st.text_input("Model (fallback)", value="", key="model_fallback")
     else:
         default_idx = (

@@ -19,10 +19,8 @@ USER_EMAIL = os.getenv("USER_EMAIL", "User")
 USER_TEAM = os.getenv("USER_TEAM", "Finance Ops")
 RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/"
 LLM_PROVIDER_API_ENDPOINT = f"{API_BASE_URL}/api/llm/provider"
-SELECTED_MODEL = os.getenv("MODEL")
 X_PEBBLO_USER = os.getenv("X_PEBBLO_USER", None)
 X_PEBBLO_USER_GROUPS = os.getenv("X_PEBBLO_USER_GROUPS", None)
-MODEL_NAME = os.getenv("MODEL_NAME", SELECTED_MODEL)
 
 CUSTOM_CSS = """
 <style>
@@ -196,18 +194,30 @@ def get_welcome_html(user_email: str = None, user_team: str = None) -> str:
 """
 
 
-def get_available_models():
-    """Fetch available models. Returns (model_names, default_model_name).
-    Supports OpenAI-style /v1/models response: {object, data: [{id, ...}, ...]}.
+def get_available_models(api_base_url: str = None, api_key: str = None):
+    """Fetch available models from GET .../v1/models.
+
+    Returns (model_names, default_model_name).
+    Supports OpenAI-style response: {object, data: [{id, ...}, ...]}.
+    On failure returns ([], "") instead of raising so UIs can fall back to env.
     """
+    base = (api_base_url or API_BASE_URL or "").rstrip("/")
+    key = api_key if api_key is not None else API_KEY
+    url = f"{base}/safe_infer/llm/v1/models"
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {key}" if key else "",
+    }
+    if X_PEBBLO_USER:
+        headers["X-PEBBLO-USER"] = X_PEBBLO_USER
+    if X_PEBBLO_USER_GROUPS:
+        headers["X-PEBBLO-USER-GROUPS"] = X_PEBBLO_USER_GROUPS
+    # Strip empty Authorization to avoid invalid header
+    if not key:
+        headers.pop("Authorization", None)
+
     try:
-        headers = {
-            "accept": "application/json",
-            "Authorization": f"Bearer {os.environ.get('PEBBLO_API_KEY')}",
-            "Content-Type": "application/x-www-form-urlencoded",
-        }
-        url = f"{os.environ.get('PROXIMA_HOST')}/safe_infer/llm/v1/models"
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         body = response.json()
         # OpenAI-style: {object: 'list', data: [{id: '...', ...}, ...]}
@@ -233,7 +243,7 @@ def get_available_models():
         return [], ""
     except Exception as e:
         print(f"Error getting available models: {e}")
-        raise e
+        return [], ""
 
 
 def _get_client(api_key: str = None):

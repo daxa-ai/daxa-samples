@@ -4,7 +4,7 @@ A secure chatbot application powered by the SafeInfer LLM API. This Streamlit ap
 
 ## Features
 
-- **Demo (main page)**: Env-based config; single model and non-streaming completions
+- **Demo (main page)**: Model from `/v1/models` dropdown (or manual ID); non-streaming completions
 - **Test (`/test`)**: Choose **API Type** (completions / responses), **Stream** (True / False), and **Model** (from API) in the sidebar; OpenAI API calls use these selections
 - **Secure conversations**: SafeInfer API with content safety
 - **Interactive chat**: Clean UI with conversation history
@@ -59,8 +59,6 @@ Open `http://localhost:8501` for the **Demo** page. For the **Test** page, open 
 |------------------|----------------------------------------------|
 | `PROXIMA_HOST`   | SafeInfer API base URL (default: `http://localhost`) |
 | `PEBBLO_API_KEY` | Pebblo API key                               |
-| `MODEL`          | Default model (Demo page and fallback)       |
-| `MODEL_NAME`     | Display name for the model                   |
 | `USER_EMAIL`     | User email (e.g. for welcome message)       |
 | `USER_TEAM`      | User team (e.g. for welcome message)         |
 | `X_PEBBLO_USER`  | Pebblo user (sent in API headers)           |
@@ -76,7 +74,7 @@ Open `http://localhost:8501` for the **Demo** page. For the **Test** page, open 
 
 ### Demo (main page)
 
-- Uses `MODEL`, `PEBBLO_API_KEY`, and `PROXIMA_HOST` from the environment.
+- Uses `PEBBLO_API_KEY` and `PROXIMA_HOST` from the environment; model is selected from the API or entered manually.
 - Chat uses **completions** API, non-streaming.
 - Sidebar: API Status, Chat Management (clear/export), Statistics.
 
