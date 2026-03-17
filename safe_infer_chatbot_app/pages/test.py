@@ -20,10 +20,16 @@ from utils import (
 
 
 @st.cache_data(ttl=300)
-def fetch_models() -> tuple:
+def fetch_models(
+    pebblo_user: str = None,
+    pebblo_user_groups: str = None,
+) -> tuple:
     """Fetch available models (cached 5 min). Returns (model_names, default_model_name)."""
     try:
-        return get_available_models()
+        return get_available_models(
+            pebblo_user=pebblo_user or None,
+            pebblo_user_groups=pebblo_user_groups or None,
+        )
     except Exception:
         return [], ""
 
@@ -36,10 +42,25 @@ if "test_chat_history" not in st.session_state:
 # Sidebar: Test Settings (dropdowns) at top, then API Status, Chat Management, Statistics
 with st.sidebar:
     st.subheader("⚙️ Test Settings")
+    pebblo_user_override = st.text_input(
+        "User (X_PEBBLO_USER)",
+        value="",
+        key="pebblo_user_override",
+        placeholder="Leave empty to use env",
+    )
+    pebblo_user_groups_override = st.text_input(
+        "User Groups (X_PEBBLO_USER_GROUPS)",
+        value="",
+        key="pebblo_user_groups_override",
+        placeholder="Leave empty to use env",
+    )
     api_type = st.selectbox("API Type", ["completions", "responses"], key="api_type")
     stream_option = st.selectbox("Stream", [True, False], key="stream_option")
     try:
-        model_names, default_model = fetch_models()
+        model_names, default_model = fetch_models(
+            pebblo_user=pebblo_user_override.strip() or None,
+            pebblo_user_groups=pebblo_user_groups_override.strip() or None,
+        )
     except Exception:
         model_names = []
         default_model = ""
@@ -93,11 +114,23 @@ with st.sidebar:
 
     st.subheader("📊 Statistics")
     st.metric("Messages", len(st.session_state.test_chat_history))
+    user_display = (
+        pebblo_user_override.strip()
+        if (pebblo_user_override and pebblo_user_override.strip())
+        else "(from env)"
+    )
+    user_groups_display = (
+        pebblo_user_groups_override.strip()
+        if (pebblo_user_groups_override and pebblo_user_groups_override.strip())
+        else "(from env)"
+    )
     st.markdown(
         f"""
 <div style="font-size:0.8rem;">
     API: <b>{api_type}</b> | Stream: <b>{stream_option}</b><br>
-    Model: <b>{selected_model if model_names else (selected_model or '(none)')}</b>
+    Model: <b>{selected_model if model_names else (selected_model or '(none)')}</b><br>
+    User: <b>{user_display}</b><br>
+    User Groups: <b>{user_groups_display}</b>
 </div>
 """,
         unsafe_allow_html=True,
@@ -150,6 +183,8 @@ if send_button and user_input.strip():
                 stream=stream_option,
                 message=user_input,
                 api_key=API_KEY,
+                pebblo_user=pebblo_user_override.strip() or None,
+                pebblo_user_groups=pebblo_user_groups_override.strip() or None,
             )
 
         if result["status"] == "success":
