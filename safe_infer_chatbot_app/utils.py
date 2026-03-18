@@ -194,12 +194,19 @@ def get_welcome_html(user_email: str = None, user_team: str = None) -> str:
 """
 
 
-def get_available_models(api_base_url: str = None, api_key: str = None):
+def get_available_models(
+    api_base_url: str = None,
+    api_key: str = None,
+    pebblo_user: str = None,
+    pebblo_user_groups: str = None,
+):
     """Fetch available models from GET .../v1/models.
 
     Returns (model_names, default_model_name).
     Supports OpenAI-style response: {object, data: [{id, ...}, ...]}.
     On failure returns ([], "") instead of raising so UIs can fall back to env.
+    pebblo_user: if non-empty, use for X-PEBBLO-USER header; else use env X_PEBBLO_USER.
+    pebblo_user_groups: if non-empty, use for X-PEBBLO-USER-GROUPS; else use env.
     """
     base = (api_base_url or API_BASE_URL or "").rstrip("/")
     key = api_key if api_key is not None else API_KEY
@@ -208,10 +215,18 @@ def get_available_models(api_base_url: str = None, api_key: str = None):
         "Accept": "application/json",
         "Authorization": f"Bearer {key}" if key else "",
     }
-    if X_PEBBLO_USER:
-        headers["X-PEBBLO-USER"] = X_PEBBLO_USER
-    if X_PEBBLO_USER_GROUPS:
-        headers["X-PEBBLO-USER-GROUPS"] = X_PEBBLO_USER_GROUPS
+    header_user = (
+        pebblo_user.strip() if (pebblo_user and pebblo_user.strip()) else X_PEBBLO_USER
+    )
+    if header_user:
+        headers["X-PEBBLO-USER"] = header_user
+    header_groups = (
+        pebblo_user_groups.strip()
+        if (pebblo_user_groups and pebblo_user_groups.strip())
+        else X_PEBBLO_USER_GROUPS
+    )
+    if header_groups:
+        headers["X-PEBBLO-USER-GROUPS"] = header_groups
     # Strip empty Authorization to avoid invalid header
     if not key:
         headers.pop("Authorization", None)
@@ -246,14 +261,30 @@ def get_available_models(api_base_url: str = None, api_key: str = None):
         return [], ""
 
 
-def _get_client(api_key: str = None):
-    """Build OpenAI client with shared config."""
+def _get_client(
+    api_key: str = None,
+    pebblo_user: str = None,
+    pebblo_user_groups: str = None,
+):
+    """Build OpenAI client with shared config.
+
+    pebblo_user: if non-empty, use for X-PEBBLO-USER header; else use env X_PEBBLO_USER.
+    pebblo_user_groups: if non-empty, use for X-PEBBLO-USER-GROUPS; else use env.
+    """
     key = api_key or API_KEY
     default_headers = {}
-    if X_PEBBLO_USER:
-        default_headers["X-PEBBLO-USER"] = X_PEBBLO_USER
-    if X_PEBBLO_USER_GROUPS:
-        default_headers["X-PEBBLO-USER-GROUPS"] = X_PEBBLO_USER_GROUPS
+    header_user = (
+        pebblo_user.strip() if (pebblo_user and pebblo_user.strip()) else X_PEBBLO_USER
+    )
+    if header_user:
+        default_headers["X-PEBBLO-USER"] = header_user
+    header_groups = (
+        pebblo_user_groups.strip()
+        if (pebblo_user_groups and pebblo_user_groups.strip())
+        else X_PEBBLO_USER_GROUPS
+    )
+    if header_groups:
+        default_headers["X-PEBBLO-USER-GROUPS"] = header_groups
     default_headers = default_headers or None
     return OpenAI(
         base_url=RESPONSE_API_ENDPOINT,
@@ -279,11 +310,20 @@ def _extract_response_text(response) -> str:
 
 
 def call_completions(
-    message: str, model: str, stream: bool, api_key: str = ""
+    message: str,
+    model: str,
+    stream: bool,
+    api_key: str = "",
+    pebblo_user: str = None,
+    pebblo_user_groups: str = None,
 ) -> Dict[str, Any]:
     """Call chat.completions API. Returns {status, data} or {status, stream_gen} for stream."""
     try:
-        client = _get_client(api_key or API_KEY)
+        client = _get_client(
+            api_key or API_KEY,
+            pebblo_user=pebblo_user,
+            pebblo_user_groups=pebblo_user_groups,
+        )
         if not stream:
             response = client.chat.completions.create(
                 model=model,
@@ -309,11 +349,20 @@ def call_completions(
 
 
 def call_responses(
-    message: str, model: str, stream: bool, api_key: str = ""
+    message: str,
+    model: str,
+    stream: bool,
+    api_key: str = "",
+    pebblo_user: str = None,
+    pebblo_user_groups: str = None,
 ) -> Dict[str, Any]:
     """Call responses API. Returns {status, data} or {status, stream_gen} for stream."""
     try:
-        client = _get_client(api_key or API_KEY)
+        client = _get_client(
+            api_key or API_KEY,
+            pebblo_user=pebblo_user,
+            pebblo_user_groups=pebblo_user_groups,
+        )
         if not stream:
             response = client.responses.create(
                 model=model,
@@ -347,11 +396,29 @@ def call_llm(
     stream: bool,
     message: str,
     api_key: str = "",
+    pebblo_user: str = None,
+    pebblo_user_groups: str = None,
 ) -> Dict[str, Any]:
     """Call OpenAI-compatible API using user-selected api_type, model, and stream.
     api_type: 'completions' or 'responses'
     Returns {status, data} or {status, stream_gen} for streaming.
+    pebblo_user: if non-empty, use for X-PEBBLO-USER header; else use env.
+    pebblo_user_groups: if non-empty, use for X-PEBBLO-USER-GROUPS; else use env.
     """
     if api_type == "responses":
-        return call_responses(message, model, stream, api_key or API_KEY)
-    return call_completions(message, model, stream, api_key or API_KEY)
+        return call_responses(
+            message,
+            model,
+            stream,
+            api_key or API_KEY,
+            pebblo_user=pebblo_user,
+            pebblo_user_groups=pebblo_user_groups,
+        )
+    return call_completions(
+        message,
+        model,
+        stream,
+        api_key or API_KEY,
+        pebblo_user=pebblo_user,
+        pebblo_user_groups=pebblo_user_groups,
+    )
