@@ -1,4 +1,5 @@
 """Shared utilities and config for SafeInfer chatbot app (Demo and Test)."""
+import logging
 import os
 from typing import Any, Dict, Generator, List
 
@@ -12,6 +13,8 @@ from dotenv import load_dotenv
 _env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(_env_path)
 
+logger = logging.getLogger(__name__)
+
 # API Configuration (from env)
 API_KEY = os.getenv("PEBBLO_API_KEY", "")
 API_BASE_URL = os.getenv("PROXIMA_HOST", "http://localhost")
@@ -21,6 +24,7 @@ RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/"
 LLM_PROVIDER_API_ENDPOINT = f"{API_BASE_URL}/api/llm/provider"
 X_PEBBLO_USER = os.getenv("X_PEBBLO_USER", None)
 X_PEBBLO_USER_GROUPS = os.getenv("X_PEBBLO_USER_GROUPS", None)
+MODEL = os.getenv("MODEL", "").strip()
 
 CUSTOM_CSS = """
 <style>
@@ -194,23 +198,58 @@ def get_welcome_html(user_email: str = None, user_team: str = None) -> str:
 """
 
 
-def get_available_models(
-    api_base_url: str = None,
+def _parse_models_response_body(body: Any) -> List[str]:
+    """Extract ordered unique model id strings from a /v1/models-style JSON body."""
+    # OpenAI-style: {object: 'list', data: [{id: '...', ...}, ...]}
+    if isinstance(body, dict) and "data" in body:
+        models = body["data"] or []
+        if not models:
+            return []
+        return list(dict.fromkeys(m["id"] for m in models if m.get("id")))
+    # Provider-list style: list of {default_model_name, is_default_provider}
+    if isinstance(body, list):
+        if len(body) == 0:
+            return []
+        return list(
+            dict.fromkeys(m["default_model_name"] for m in body if m.get("default_model_name"))
+        )
+    return []
+
+
+def _fetch_model_ids_from_url(url: str, headers: Dict[str, str]) -> List[str]:
+    """GET a models URL; return id list or [] on HTTP error, empty body, or non-JSON."""
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        logger.debug("Models request failed %s: %s", url, exc)
+        return []
+
+    text = (response.text or "").strip()
+    if not text:
+        logger.debug("Models response empty: %s", url)
+        return []
+
+    try:
+        body = response.json()
+    except ValueError:
+        # HTML error page, plain text, or other non-JSON (common if path is missing)
+        logger.debug(
+            "Models response not JSON (status=%s): %s",
+            response.status_code,
+            url,
+        )
+        return []
+
+    return _parse_models_response_body(body)
+
+
+def _models_request_headers(
     api_key: str = None,
     pebblo_user: str = None,
     pebblo_user_groups: str = None,
-):
-    """Fetch available models from GET .../v1/models.
-
-    Returns (model_names, default_model_name).
-    Supports OpenAI-style response: {object, data: [{id, ...}, ...]}.
-    On failure returns ([], "") instead of raising so UIs can fall back to env.
-    pebblo_user: if non-empty, use for X-PEBBLO-USER header; else use env X_PEBBLO_USER.
-    pebblo_user_groups: if non-empty, use for X-PEBBLO-USER-GROUPS; else use env.
-    """
-    base = (api_base_url or API_BASE_URL or "").rstrip("/")
+) -> Dict[str, str]:
     key = api_key if api_key is not None else API_KEY
-    url = f"{base}/safe_infer/llm/v1/models"
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {key}" if key else "",
@@ -227,38 +266,54 @@ def get_available_models(
     )
     if header_groups:
         headers["X-PEBBLO-USER-GROUPS"] = header_groups
-    # Strip empty Authorization to avoid invalid header
     if not key:
         headers.pop("Authorization", None)
+    return headers
 
-    try:
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        body = response.json()
-        # OpenAI-style: {object: 'list', data: [{id: '...', ...}, ...]}
-        if isinstance(body, dict) and "data" in body:
-            models = body["data"] or []
-            if not models:
-                return [], ""
-            # Preserve order, deduplicate by id
-            model_names = list(dict.fromkeys(m["id"] for m in models if m.get("id")))
-            default_model_name = model_names[0] if model_names else ""
-            return model_names, default_model_name
-        # Provider-list style: list of {default_model_name, is_default_provider}
-        if isinstance(body, list):
-            if len(body) == 0:
-                return [], ""
-            model_names = [m["default_model_name"] for m in body if m.get("default_model_name")]
-            default = next(
-                (m for m in body if m.get("is_default_provider")),
-                body[0],
-            )
-            default_model_name = default.get("default_model_name", model_names[0] if model_names else "")
-            return model_names, default_model_name
+
+def get_available_models(
+    api_base_url: str = None,
+    api_key: str = None,
+    pebblo_user: str = None,
+    pebblo_user_groups: str = None,
+):
+    """Fetch models from safe_infer and plain LLM endpoints, merged in order.
+
+    Combines GET {base}/safe_infer/llm/v1/models and GET {base}/llm/v1/models,
+    appending the second list after the first (deduplicated, order preserved).
+
+    Returns (model_names, default_model_name).
+    On total failure returns ([], "").
+    pebblo_user / pebblo_user_groups: optional overrides for Pebblo headers.
+    """
+    base = (api_base_url or API_BASE_URL or "").rstrip("/")
+    headers = _models_request_headers(api_key, pebblo_user, pebblo_user_groups)
+
+    safe_infer_url = f"{base}/safe_infer/llm/v1/models"
+    llm_v1_url = f"{base}/llm/v1/models"
+
+    from_safe_infer = _fetch_model_ids_from_url(safe_infer_url, headers)
+    from_llm_v1 = _fetch_model_ids_from_url(llm_v1_url, headers)
+
+    merged = list(dict.fromkeys(from_safe_infer + from_llm_v1))
+    if not merged:
         return [], ""
-    except Exception as e:
-        print(f"Error getting available models: {e}")
-        return [], ""
+
+    default_model_name = merged[0]
+    return merged, default_model_name
+
+
+def merge_env_model_into_model_list(
+    model_names: List[str],
+    env_model: str,
+) -> List[str]:
+    """Include env MODEL in the dropdown when set; prepend if missing from the API list."""
+    if not env_model:
+        return list(model_names) if model_names else []
+    ordered = list(dict.fromkeys(model_names)) if model_names else []
+    if env_model in ordered:
+        return ordered
+    return [env_model] + ordered
 
 
 def _get_client(

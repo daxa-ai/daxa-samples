@@ -9,12 +9,14 @@ from utils import (
     CUSTOM_CSS,
     FOOTER_HTML,
     MAIN_HEADER_HTML,
+    MODEL,
     USER_EMAIL,
     USER_TEAM,
     call_llm,
     display_chat_message,
     get_available_models,
     get_welcome_html,
+    merge_env_model_into_model_list,
     test_api_connection,
 )
 
@@ -64,15 +66,22 @@ with st.sidebar:
     except Exception:
         model_names = []
         default_model = ""
+    model_names = merge_env_model_into_model_list(model_names, MODEL)
     if not model_names:
         st.warning("Could not load models. Check API or enter a model ID below.")
-        selected_model = st.text_input("Model (fallback)", value="", key="model_fallback")
+        fallback_val = st.session_state.get("model_fallback", "") or MODEL
+        selected_model = st.text_input(
+            "Model (fallback)",
+            value=fallback_val,
+            key="model_fallback",
+        )
     else:
+        preferred = MODEL or default_model
         default_idx = (
-            model_names.index(default_model) if default_model in model_names else 0
+            model_names.index(preferred) if preferred in model_names else 0
         )
         selected_model = st.selectbox(
-            "Model",
+            "LLM Model",
             model_names,
             index=default_idx,
             key="model_select",
