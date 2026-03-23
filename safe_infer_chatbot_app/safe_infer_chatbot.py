@@ -10,6 +10,7 @@ from utils import (
     CUSTOM_CSS,
     FOOTER_HTML,
     MAIN_HEADER_HTML,
+    MODEL,
     RESPONSE_API_ENDPOINT,
     X_PEBBLO_USER,
     X_PEBBLO_USER_GROUPS,
@@ -17,6 +18,7 @@ from utils import (
     get_available_models,
     get_welcome_html,
     load_prompts_from_yaml,
+    merge_env_model_into_model_list,
     test_api_connection,
 )
 
@@ -43,9 +45,9 @@ DEFAULT_LANGUAGE = "en" if "en" in LANGUAGE_PROMPTS else (list(LANGUAGE_PROMPTS.
 # Initialize session state
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-# Model is chosen from /v1/models dropdown or manual entry only (no env)
+# Model: env MODEL is default; user can change via dropdown or manual entry
 if "selected_model" not in st.session_state:
-    st.session_state.selected_model = ""
+    st.session_state.selected_model = MODEL or ""
 if "api_key" not in st.session_state:
     st.session_state.api_key = API_KEY
 if "model_name" not in st.session_state:
@@ -94,16 +96,19 @@ with st.sidebar:
 
     st.subheader("🤖 Model")
     model_names, default_model = fetch_models()
+    model_names = merge_env_model_into_model_list(model_names, MODEL)
     if model_names:
         try:
-            current = st.session_state.get("selected_model") or default_model
+            current = (
+                st.session_state.get("selected_model") or MODEL or default_model
+            )
             if current not in model_names:
                 current = default_model or model_names[0]
             idx = model_names.index(current) if current in model_names else 0
         except (ValueError, TypeError):
             idx = 0
         selected_model = st.selectbox(
-            "Model",
+            "LLM Model",
             model_names,
             index=idx,
             key="sidebar_model_select",
@@ -113,7 +118,7 @@ with st.sidebar:
         st.session_state.model_name = selected_model
     else:
         st.warning("Could not load models from API. Enter a model ID below.")
-        fallback = st.session_state.get("selected_model") or ""
+        fallback = st.session_state.get("selected_model") or MODEL or ""
         manual = st.text_input(
             "Model ID",
             value=fallback,
