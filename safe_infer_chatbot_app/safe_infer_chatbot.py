@@ -2,8 +2,15 @@ import json
 import time
 from typing import Dict, Any
 
+import httpx
 import streamlit as st
 from openai import OpenAI
+
+_attempt_counter = {"count": 0}
+
+
+def _on_request(request):
+    _attempt_counter["count"] += 1
 
 from utils import (
     API_KEY,
@@ -57,7 +64,7 @@ if "prompt_language" not in st.session_state:
 
 
 def call_open_ai(message: str, model: str, api_key: str = "") -> Dict[str, Any]:
-    """Call OpenAI-compatible completions API (non-streaming) for Demo."""
+    """Call OpenAI-compatible completions API (streaming) for Demo."""
     try:
         default_headers = {}
         if X_PEBBLO_USER:
@@ -66,16 +73,29 @@ def call_open_ai(message: str, model: str, api_key: str = "") -> Dict[str, Any]:
             default_headers["X-PEBBLO-USER-GROUPS"] = X_PEBBLO_USER_GROUPS
         default_headers = default_headers or None
 
+        http_client = httpx.Client(
+            timeout=300,
+            transport=httpx.HTTPTransport(retries=0),
+            event_hooks={"request": [_on_request]},
+        )
         client = OpenAI(
             base_url=RESPONSE_API_ENDPOINT,
             api_key=api_key,
             default_headers=default_headers,
+            http_client=http_client,
+            max_retries=0,
         )
-        response = client.chat.completions.create(
+        chunks = []
+        with client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": message}],
-        )
-        return {"status": "success", "data": response.choices[0].message.content}
+            stream=True,
+        ) as stream:
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    chunks.append(delta)
+        return {"status": "success", "data": "".join(chunks)}
     except Exception as e:
         return {"status": "error", "message": f"Error: {str(e)}"}
 

@@ -3,9 +3,17 @@ import logging
 import os
 from typing import Any, Dict, Generator, List
 
+import httpx
 import requests
 import yaml
 from openai import OpenAI
+
+_attempt_counter = {"count": 0}
+
+
+def _on_request(request):
+    _attempt_counter["count"] += 1
+    print(f"Attempt #{_attempt_counter['count']} -> {request.url}")
 
 # Load .env from app directory if present (before reading any env vars)
 from dotenv import load_dotenv
@@ -341,10 +349,17 @@ def _get_client(
     if header_groups:
         default_headers["X-PEBBLO-USER-GROUPS"] = header_groups
     default_headers = default_headers or None
+    http_client = httpx.Client(
+        timeout=300,
+        transport=httpx.HTTPTransport(retries=0),
+        event_hooks={"request": [_on_request]},
+    )
     return OpenAI(
         base_url=RESPONSE_API_ENDPOINT,
         api_key=key,
         default_headers=default_headers,
+        http_client=http_client,
+        max_retries=0,
     )
 
 
