@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Dict, Any
+from typing import Generator
 
 import httpx
 import streamlit as st
@@ -63,41 +63,36 @@ if "prompt_language" not in st.session_state:
     st.session_state.prompt_language = DEFAULT_LANGUAGE
 
 
-def call_open_ai(message: str, model: str, api_key: str = "") -> Dict[str, Any]:
-    """Call OpenAI-compatible completions API (streaming) for Demo."""
-    try:
-        default_headers = {}
-        if X_PEBBLO_USER:
-            default_headers["X-PEBBLO-USER"] = X_PEBBLO_USER
-        if X_PEBBLO_USER_GROUPS:
-            default_headers["X-PEBBLO-USER-GROUPS"] = X_PEBBLO_USER_GROUPS
-        default_headers = default_headers or None
+def stream_open_ai(message: str, model: str, api_key: str = ""):
+    """Yield tokens from OpenAI-compatible completions API (streaming) for Demo."""
+    default_headers = {}
+    if X_PEBBLO_USER:
+        default_headers["X-PEBBLO-USER"] = X_PEBBLO_USER
+    if X_PEBBLO_USER_GROUPS:
+        default_headers["X-PEBBLO-USER-GROUPS"] = X_PEBBLO_USER_GROUPS
+    default_headers = default_headers or None
 
-        http_client = httpx.Client(
-            timeout=300,
-            transport=httpx.HTTPTransport(retries=0),
-            event_hooks={"request": [_on_request]},
-        )
-        client = OpenAI(
-            base_url=RESPONSE_API_ENDPOINT,
-            api_key=api_key,
-            default_headers=default_headers,
-            http_client=http_client,
-            max_retries=0,
-        )
-        chunks = []
-        with client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": message}],
-            stream=True,
-        ) as stream:
-            for chunk in stream:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    chunks.append(delta)
-        return {"status": "success", "data": "".join(chunks)}
-    except Exception as e:
-        return {"status": "error", "message": f"Error: {str(e)}"}
+    http_client = httpx.Client(
+        timeout=300,
+        transport=httpx.HTTPTransport(retries=0),
+        event_hooks={"request": [_on_request]},
+    )
+    client = OpenAI(
+        base_url=RESPONSE_API_ENDPOINT,
+        api_key=api_key,
+        default_headers=default_headers,
+        http_client=http_client,
+        max_retries=0,
+    )
+    with client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": message}],
+        stream=True,
+    ) as stream:
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
 
 
 # Main header
@@ -254,19 +249,20 @@ if send_button and user_input.strip():
     })
     display_chat_message("user", user_input)
 
-    with st.spinner("🤖 AI is thinking..."):
-        model = (st.session_state.get("selected_model") or "").strip()
-        if not model:
-            st.error("No model selected. Load models from API or enter a model ID.")
-            st.stop()
-        result = call_open_ai(
-            message=user_input,
-            model=model,
-            api_key=st.session_state.api_key,
-        )
+    model = (st.session_state.get("selected_model") or "").strip()
+    if not model:
+        st.error("No model selected. Load models from API or enter a model ID.")
+        st.stop()
 
-    if result["status"] == "success":
-        response = result["data"]
+    try:
+        with st.chat_message("assistant"):
+            response = st.write_stream(
+                stream_open_ai(
+                    message=user_input,
+                    model=model,
+                    api_key=st.session_state.api_key,
+                )
+            )
         print(f"RESPONSE: {response}")
         st.session_state.chat_history.append({
             "role": "assistant",
@@ -274,19 +270,8 @@ if send_button and user_input.strip():
             "model": st.session_state.selected_model,
             "timestamp": time.strftime("%H:%M:%S"),
         })
-        display_chat_message(
-            "assistant",
-            response,
-            st.session_state.selected_model,
-            time.strftime("%H:%M:%S"),
-        )
-        if isinstance(result.get("data"), dict) and "response" in result["data"]:
-            response_data = result["data"]["response"]
-            if isinstance(response_data, dict) and "classification" in response_data:
-                with st.expander("🔍 Response Analysis"):
-                    st.json(response_data["classification"])
-    else:
-        error_message = f"❌ Error: {result['message']}"
+    except Exception as e:
+        error_message = f"❌ Error: {str(e)}"
         st.error(error_message)
         st.session_state.chat_history.append({
             "role": "assistant",
