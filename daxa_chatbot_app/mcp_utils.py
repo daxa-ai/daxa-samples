@@ -28,6 +28,10 @@ CUSTOMER_BILLING_API_KEY = os.getenv("CUSTOMER_BILLING_API_KEY", "").strip() or 
 ATLASSIAN_MCP_URL = os.getenv("ATLASSIAN_MCP_URL", "").strip() or None
 CUSTOMER_BILLING_MCP_URL = os.getenv("CUSTOMER_BILLING_MCP_URL", "").strip() or None
 
+# Direct Agent — upstream URLs (no Proxima gateway)
+DIRECT_ATLASSIAN_MCP_URL = os.getenv("DIRECT_ATLASSIAN_MCP_URL", "").strip() or None
+DIRECT_CUSTOMER_BILLING_MCP_URL = os.getenv("DIRECT_CUSTOMER_BILLING_MCP_URL", "").strip() or None
+
 
 def _pebblo_mcp_headers(
     pebblo_user: Optional[str] = None,
@@ -97,6 +101,42 @@ def build_mcp_servers(
             "url": b_url,
             "transport": "streamable_http",
             "headers": _headers_for(billing_api_key or CUSTOMER_BILLING_API_KEY),
+        }
+
+    return servers
+
+
+def build_direct_mcp_servers(
+    atlassian_url: Optional[str] = None,
+    billing_url: Optional[str] = None,
+    atlassian_token: Optional[str] = None,
+) -> Dict[str, dict]:
+    """Build MCP server config for Direct Agent mode.
+
+    No Pebblo headers at all (no x-pebblo-auth, no x-pebblo-users, no x-pebblo-user-groups).
+    Only the OAuth Authorization header is sent where a token is available.
+    """
+    servers: Dict[str, dict] = {}
+
+    # Atlassian — SSE, OAuth token only; falls back to DIRECT_ATLASSIAN_MCP_URL
+    a_url = (atlassian_url or DIRECT_ATLASSIAN_MCP_URL or "").strip()
+    if a_url:
+        headers: Dict[str, str] = {}
+        if atlassian_token:
+            headers["Authorization"] = f"Bearer {atlassian_token}"
+        servers["atlassian"] = {
+            "url": a_url,
+            "transport": "sse",
+            "headers": headers,
+        }
+
+    # Customer Billing — no auth headers; falls back to DIRECT_CUSTOMER_BILLING_MCP_URL
+    b_url = (billing_url or DIRECT_CUSTOMER_BILLING_MCP_URL or "").strip()
+    if b_url:
+        servers["customer-billing"] = {
+            "url": b_url,
+            "transport": "streamable_http",
+            "headers": {},
         }
 
     return servers

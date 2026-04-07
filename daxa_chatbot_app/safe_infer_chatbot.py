@@ -42,7 +42,10 @@ from mcp_utils import (
     CUSTOMER_BILLING_MCP_URL,
     ATLASSIAN_API_KEY,
     CUSTOMER_BILLING_API_KEY,
+    DIRECT_ATLASSIAN_MCP_URL,
+    DIRECT_CUSTOMER_BILLING_MCP_URL,
     build_mcp_servers,
+    build_direct_mcp_servers,
     stream_query_steps as mcp_stream_query_steps,
     _pebblo_mcp_headers,
 )
@@ -85,6 +88,10 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "direct_chat_history" not in st.session_state:
     st.session_state.direct_chat_history = []
+if "direct_mcp_responses" not in st.session_state:
+    st.session_state.direct_mcp_responses = []
+if "direct_mcp_tools_used" not in st.session_state:
+    st.session_state.direct_mcp_tools_used = []
 if "selected_model" not in st.session_state:
     st.session_state.selected_model = MODEL or ""
 if "api_key" not in st.session_state:
@@ -398,7 +405,46 @@ with st.sidebar:
         )
 
     elif mode == "Direct Agent":
-        st.info("Direct Agent mode — coming soon.")
+        st.subheader("⚙️ MCP Servers")
+
+        def _direct_server_expander(label, env_url, url_key, save_key):
+            """URL-only expander for Direct Agent (no Pebblo API key field)."""
+            is_set = bool(st.session_state.get(url_key) or env_url)
+            badge = "🟢" if is_set else "⚪"
+            with st.expander(f"{label}  {badge}", expanded=is_set):
+                st.text_input(
+                    "MCP URL",
+                    value=st.session_state.get(url_key) or env_url or "",
+                    key=url_key,
+                    placeholder=env_url,
+                )
+                if st.button("Save", key=save_key):
+                    if (st.session_state.get(url_key) or "").strip():
+                        st.toast(f"✅ {label} saved.", icon="💾")
+                    else:
+                        st.warning("Enter a URL first.")
+
+        def _direct_pebblo_headers_for_oauth():
+            # No Pebblo user headers in Direct mode — empty dict for OAuth probe
+            return {}
+
+        _direct_server_expander(
+            "Atlassian", DIRECT_ATLASSIAN_MCP_URL or "", "direct_atlassian_url", "direct_atlassian_save"
+        )
+        render_oauth_connect_button(
+            "direct_atlassian", "Atlassian",
+            mcp_url=st.session_state.get("direct_atlassian_url", "") or DIRECT_ATLASSIAN_MCP_URL or "",
+            redirect_uri=_MAIN_REDIRECT_URI,
+            button_key="direct_atlassian_oauth_btn",
+            pebblo_headers=_direct_pebblo_headers_for_oauth(),
+        )
+
+        _direct_server_expander(
+            "Customer Billing", DIRECT_CUSTOMER_BILLING_MCP_URL or "", "direct_billing_url", "direct_billing_save"
+        )
+
+        st.subheader("📊 Statistics")
+        st.metric("Queries", len(st.session_state.get("direct_mcp_responses", [])))
 
     elif mode == "Safe Agent":
         st.subheader("⚙️ MCP Servers")
@@ -596,7 +642,45 @@ elif mode == "Direct Infer":
         st.rerun()
 
 elif mode == "Direct Agent":
-    st.info("🚧 Direct Agent mode is coming soon.")
+    st.subheader("🤖 Direct Agent Chat")
+    st.caption(
+        "LangGraph agent across MCP servers — no Pebblo gateway headers. "
+        "Only OAuth tokens are forwarded where required."
+    )
+
+    if "direct_mcp_responses" not in st.session_state:
+        st.session_state.direct_mcp_responses = []
+    if "direct_mcp_tools_used" not in st.session_state:
+        st.session_state.direct_mcp_tools_used = []
+
+    direct_mcp_query = st.text_area(
+        "Enter your query:",
+        height=100,
+        placeholder="e.g., What is the status of ticket ABC-123?",
+        key="direct_mcp_query_input",
+    )
+
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        direct_mcp_send = st.button("🚀 Send", type="primary", key="direct_mcp_send_btn")
+
+    if direct_mcp_send and direct_mcp_query.strip():
+        direct_mcp_servers = build_direct_mcp_servers(
+            atlassian_url=st.session_state.get("direct_atlassian_url", ""),
+            billing_url=st.session_state.get("direct_billing_url", ""),
+            atlassian_token=get_oauth_token("direct_atlassian"),
+        )
+        if not direct_mcp_servers:
+            st.error("Configure at least one MCP server URL in the sidebar.")
+        else:
+            st.session_state.direct_mcp_responses = []
+            st.session_state.direct_mcp_tools_used = []
+            run_mcp_query(
+                user_input=direct_mcp_query,
+                mcp_servers=direct_mcp_servers,
+                pebblo_user="",
+                pebblo_user_groups="",
+            )
 
 elif mode == "Safe Agent":
     st.subheader("🔧 Safe MCP Chat Interface")
