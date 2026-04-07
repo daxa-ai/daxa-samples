@@ -74,9 +74,6 @@ X_PEBBLO_USER_GROUPS=your-group@example.com
 OPENAI_API_KEY=sk-proj-...
 MODEL=gpt-4o-mini             # any OpenAI model name
 
-# ── MCP user path segment ({user_id} in /mcp/{user_id}/{server}) ─────────────
-MCP_USER_ID=<your-proxima-user-slug>
-
 # ── MCP Server URLs (pre-fill sidebar; leave blank to enter manually in UI) ──
 ATLASSIAN_MCP_URL=https://<proxima-host>/mcp/<user_id>/<atlassian-server-name>
 ATLASSIAN_API_KEY=pebblo_<atlassian-server-key>

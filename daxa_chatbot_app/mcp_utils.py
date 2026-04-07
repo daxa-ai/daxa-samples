@@ -22,10 +22,6 @@ from utils import API_BASE_URL, API_KEY, MODEL, X_PEBBLO_USER, X_PEBBLO_USER_GRO
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 
-# MCP URL path segment — e.g. "user_name" → /mcp/user_name/{server}
-MCP_USER_ID = os.getenv("MCP_USER_ID", "").strip()
-
-
 # Per-server Pebblo API key defaults (each server has its own key)
 ATLASSIAN_API_KEY = os.getenv("ATLASSIAN_API_KEY", "").strip() or None
 NOTION_API_KEY = os.getenv("NOTION_API_KEY", "").strip() or None

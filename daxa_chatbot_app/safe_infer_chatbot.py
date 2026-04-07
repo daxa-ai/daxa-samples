@@ -216,12 +216,11 @@ st.markdown(MAIN_HEADER_HTML, unsafe_allow_html=True)
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.subheader("🔀 Mode")
-    mode = st.radio(
-        "Select API",
-        ["Safe Infer", "Safe Agent"],
+    mode = st.segmented_control(
+        "Mode",
+        options=["Safe Infer", "Safe Agent"],
+        default="Safe Infer",
         key="app_mode",
-        horizontal=True,
         label_visibility="collapsed",
     )
 
