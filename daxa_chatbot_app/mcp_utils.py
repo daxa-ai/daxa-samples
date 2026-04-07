@@ -90,16 +90,16 @@ def build_mcp_servers(
             h["Authorization"] = f"Bearer {oauth_token}"
         return h
 
-    # Atlassian — per-server key + optional OAuth token
-    # a_url = (atlassian_url or ATLASSIAN_MCP_URL or "").strip()
-    # if a_url:
-    #     servers["atlassian"] = {
-    #         "url": a_url,
-    #         "transport": "streamable_http",
-    #         "headers": _headers_for(atlassian_api_key or ATLASSIAN_API_KEY, atlassian_token),
-    #     }
+    # Atlassian — SSE transport (upstream is https://mcp.atlassian.com/v1/sse)
+    a_url = (atlassian_url or ATLASSIAN_MCP_URL or "").strip()
+    if a_url:
+        servers["atlassian"] = {
+            "url": a_url,
+            "transport": "sse",
+            "headers": _headers_for(atlassian_api_key or ATLASSIAN_API_KEY, atlassian_token),
+        }
 
-    # # Notion — per-server key + optional OAuth token
+    # Notion — per-server key + optional OAuth token
     # n_url = (notion_url or NOTION_MCP_URL or "").strip()
     # if n_url:
     #     servers["notion"] = {
@@ -136,8 +136,24 @@ async def setup_langgraph(
             "No MCP servers configured. Provide at least one server URL."
         )
 
-    mcp_client = MultiServerMCPClient(mcp_servers)
-    tools = await mcp_client.get_tools()
+    # Try each server individually so a single failing server doesn't block the others
+    all_tools = []
+    for server_name, server_config in mcp_servers.items():
+        try:
+            client = MultiServerMCPClient({server_name: server_config})
+            server_tools = await client.get_tools()
+            logging.info("[MCP] %s: connected, %d tools: %s",
+                         server_name, len(server_tools), [t.name for t in server_tools])
+            all_tools.extend(server_tools)
+        except Exception as exc:
+            # Unwrap ExceptionGroup (Python 3.11+)
+            inner = exc.exceptions[0] if hasattr(exc, "exceptions") else exc
+            logging.warning("[MCP] %s: skipped — %s: %s",
+                            server_name, type(inner).__name__, inner)
+
+    tools = all_tools
+    if not tools:
+        raise ValueError("No tools available — all configured MCP servers failed to connect.")
     logging.info(f"Retrieved {len(tools)} tools from MCP servers: {[tool.name for tool in tools]}")
     tools_by_name = {tool.name: tool for tool in tools}
     chat_model = _get_chat_model()
