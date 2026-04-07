@@ -4,3 +4,7 @@ kiran.env
 __pycache__/
 *.py[cod]
 .DS_Store
+.vscode/
+.idea/
+*.claude
+**/__pycache__/
