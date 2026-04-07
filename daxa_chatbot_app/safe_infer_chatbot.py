@@ -39,10 +39,8 @@ from utils import (
 )
 from mcp_utils import (
     ATLASSIAN_MCP_URL,
-    NOTION_MCP_URL,
     CUSTOMER_BILLING_MCP_URL,
     ATLASSIAN_API_KEY,
-    NOTION_API_KEY,
     CUSTOMER_BILLING_API_KEY,
     build_mcp_servers,
     stream_query_steps as mcp_stream_query_steps,
@@ -448,18 +446,6 @@ with st.sidebar:
             pebblo_headers=_pebblo_headers_for_oauth(),
         )
 
-        # notion_url, notion_api_key = _server_expander(
-        #     "Notion", NOTION_MCP_URL or "", "notion_url",
-        #     NOTION_API_KEY or "", "notion_api_key", "notion_save"
-        # )
-        # render_oauth_connect_button(
-        #     "notion", "Notion",
-        #     mcp_url=st.session_state.get("notion_url", "") or NOTION_MCP_URL or "",
-        #     redirect_uri=_MAIN_REDIRECT_URI,
-        #     button_key="notion_oauth_btn",
-        #     pebblo_headers=_pebblo_headers_for_oauth(),
-        # )
-
         billing_url, billing_api_key = _server_expander(
             "Customer Billing", CUSTOMER_BILLING_MCP_URL or "", "billing_url",
             CUSTOMER_BILLING_API_KEY or "", "billing_api_key", "billing_save"
@@ -634,14 +620,11 @@ elif mode == "Safe Agent":
         mcp_servers = build_mcp_servers(
             atlassian_url=st.session_state.get("atlassian_url", ""),
             atlassian_api_key=st.session_state.get("atlassian_api_key", ""),
-            notion_url=st.session_state.get("notion_url", ""),
-            notion_api_key=st.session_state.get("notion_api_key", ""),
             billing_url=st.session_state.get("billing_url", ""),
             billing_api_key=st.session_state.get("billing_api_key", ""),
             pebblo_user=st.session_state.get("mcp_user_input", ""),
             pebblo_user_groups=st.session_state.get("mcp_groups_input", ""),
             atlassian_token=get_oauth_token("atlassian"),
-            notion_token=get_oauth_token("notion"),
         )
         if not mcp_servers:
             st.error("Configure at least one MCP server URL in the sidebar.")

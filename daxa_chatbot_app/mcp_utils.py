@@ -24,10 +24,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 
 # Per-server Pebblo API key defaults (each server has its own key)
 ATLASSIAN_API_KEY = os.getenv("ATLASSIAN_API_KEY", "").strip() or None
-NOTION_API_KEY = os.getenv("NOTION_API_KEY", "").strip() or None
 CUSTOMER_BILLING_API_KEY = os.getenv("CUSTOMER_BILLING_API_KEY", "").strip() or None
 ATLASSIAN_MCP_URL = os.getenv("ATLASSIAN_MCP_URL", "").strip() or None
-NOTION_MCP_URL = os.getenv("NOTION_MCP_URL", "").strip() or None
 CUSTOMER_BILLING_MCP_URL = os.getenv("CUSTOMER_BILLING_MCP_URL", "").strip() or None
 
 
@@ -54,18 +52,15 @@ def _pebblo_mcp_headers(
 def build_mcp_servers(
     atlassian_url: Optional[str] = None,
     atlassian_api_key: Optional[str] = None,
-    notion_url: Optional[str] = None,
-    notion_api_key: Optional[str] = None,
     billing_url: Optional[str] = None,
     billing_api_key: Optional[str] = None,
     pebblo_user: Optional[str] = None,
     pebblo_user_groups: Optional[str] = None,
     atlassian_token: Optional[str] = None,
-    notion_token: Optional[str] = None,
 ) -> Dict[str, dict]:
     """Build MultiServerMCPClient-compatible server config dict.
 
-    Atlassian and Notion route through the Pebblo gateway — authenticated via
+    Atlassian route through the Pebblo gateway — authenticated via
     x-pebblo-auth / x-pebblo-users / x-pebblo-user-groups headers.
     When an OAuth access token is available for a service it is also sent as
     Authorization: Bearer <token> so the upstream provider can verify the user.
@@ -94,15 +89,6 @@ def build_mcp_servers(
             "transport": "sse",
             "headers": _headers_for(atlassian_api_key or ATLASSIAN_API_KEY, atlassian_token),
         }
-
-    # Notion — per-server key + optional OAuth token
-    # n_url = (notion_url or NOTION_MCP_URL or "").strip()
-    # if n_url:
-    #     servers["notion"] = {
-    #         "url": n_url,
-    #         "transport": "streamable_http",
-    #         "headers": _headers_for(notion_api_key or NOTION_API_KEY, notion_token),
-    #     }
 
     # Customer Billing — per-server key (no OAuth needed)
     b_url = (billing_url or CUSTOMER_BILLING_MCP_URL or "").strip()
