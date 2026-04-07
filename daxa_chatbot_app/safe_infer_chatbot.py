@@ -85,6 +85,8 @@ DEFAULT_LANGUAGE = "en" if "en" in LANGUAGE_PROMPTS else (list(LANGUAGE_PROMPTS.
 # Initialize session state
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "direct_chat_history" not in st.session_state:
+    st.session_state.direct_chat_history = []
 if "selected_model" not in st.session_state:
     st.session_state.selected_model = MODEL or ""
 if "api_key" not in st.session_state:
@@ -121,6 +123,34 @@ def stream_open_ai(message: str, model: str, api_key: str = ""):
         base_url=RESPONSE_API_ENDPOINT,
         api_key=api_key,
         default_headers=default_headers,
+        http_client=http_client,
+        max_retries=0,
+    )
+    with client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": message}],
+        stream=True,
+    ) as stream:
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
+
+# ---------------------------------------------------------------------------
+# Direct Infer helpers
+# ---------------------------------------------------------------------------
+
+def stream_direct_openai(message: str, model: str) -> Generator:
+    """Yield tokens directly from OpenAI API using OPENAI_API_KEY (no gateway, no Pebblo headers)."""
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    http_client = httpx.Client(
+        timeout=300,
+        transport=httpx.HTTPTransport(retries=0),
+        event_hooks={"request": [_on_request]},
+    )
+    client = OpenAI(
+        api_key=api_key,
         http_client=http_client,
         max_retries=0,
     )
@@ -218,7 +248,7 @@ st.markdown(MAIN_HEADER_HTML, unsafe_allow_html=True)
 with st.sidebar:
     mode = st.segmented_control(
         "Mode",
-        options=["Safe Infer", "Safe Agent"],
+        options=["Safe Infer", "Safe Agent", "Direct Infer", "Direct Agent"],
         default="Safe Infer",
         key="app_mode",
         label_visibility="collapsed",
@@ -334,7 +364,45 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
-    else:  # Safe Agent
+    elif mode == "Direct Infer":
+        st.subheader("🤖 Model")
+        direct_model_val = st.session_state.get("direct_model") or MODEL or "gpt-5"
+        st.text_input(
+            "OpenAI Model ID",
+            value=direct_model_val,
+            key="direct_model",
+            placeholder="e.g. gpt-5, gpt-5-mini, etc.",
+        )
+        st.caption("Calls **api.openai.com** directly using `OPENAI_API_KEY`. No SafeInfer gateway.")
+
+        if st.session_state.direct_chat_history:
+            chat_data = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "model": st.session_state.get("direct_model", ""),
+                "conversation": st.session_state.direct_chat_history,
+            }
+            st.download_button(
+                label="📥 Export Chat",
+                data=json.dumps(chat_data, indent=2),
+                file_name=f"direct_infer_{time.strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+                key="direct_export_btn",
+            )
+            if st.button("🗑️ Clear Chat", key="direct_clear_btn"):
+                st.session_state.direct_chat_history = []
+                st.rerun()
+
+        st.subheader("📊 Statistics")
+        st.metric("Messages", len(st.session_state.direct_chat_history))
+        st.markdown(
+            f"<div style='font-size:0.8rem;'>Model: <b>{st.session_state.get('direct_model') or MODEL or 'gpt-5'}</b></div>",
+            unsafe_allow_html=True,
+        )
+
+    elif mode == "Direct Agent":
+        st.info("Direct Agent mode — coming soon.")
+
+    elif mode == "Safe Agent":
         st.subheader("⚙️ MCP Servers")
 
         def _server_expander(label, env_url, url_key, env_key, key_key, save_key):
@@ -483,7 +551,68 @@ if mode == "Safe Infer":
 
         st.rerun()
 
-else:  # Safe MCP
+elif mode == "Direct Infer":
+    st.subheader("💬 Direct Infer Chat")
+    st.caption("Direct OpenAI API — no SafeInfer gateway, no content filtering.")
+
+    for message in st.session_state.direct_chat_history:
+        display_chat_message(
+            role=message["role"],
+            content=message["content"],
+            model=message.get("model", ""),
+            timestamp=message.get("timestamp", ""),
+        )
+
+    user_input_direct = st.text_area(
+        "Type your message here:",
+        height=100,
+        placeholder="Ask me anything! Powered directly by OpenAI.",
+        key="direct_user_input",
+    )
+
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        direct_send = st.button("🚀 Send", type="primary", key="direct_send_btn")
+
+    if direct_send and user_input_direct.strip():
+        st.session_state.direct_chat_history.append({
+            "role": "user",
+            "content": user_input_direct,
+            "timestamp": time.strftime("%H:%M:%S"),
+        })
+        display_chat_message("user", user_input_direct)
+
+        direct_model = (st.session_state.get("direct_model") or MODEL or "gpt-5").strip()
+
+        try:
+            with st.chat_message("assistant"):
+                response = st.write_stream(
+                    stream_direct_openai(
+                        message=user_input_direct,
+                        model=direct_model,
+                    )
+                )
+            st.session_state.direct_chat_history.append({
+                "role": "assistant",
+                "content": response,
+                "model": direct_model,
+                "timestamp": time.strftime("%H:%M:%S"),
+            })
+        except Exception as e:
+            error_message = f"❌ Error: {str(e)}"
+            st.error(error_message)
+            st.session_state.direct_chat_history.append({
+                "role": "assistant",
+                "content": error_message,
+                "timestamp": time.strftime("%H:%M:%S"),
+            })
+
+        st.rerun()
+
+elif mode == "Direct Agent":
+    st.info("🚧 Direct Agent mode is coming soon.")
+
+elif mode == "Safe Agent":
     st.subheader("🔧 Safe MCP Chat Interface")
     st.caption(
         "Queries are handled by a LangGraph agent across all configured MCP servers. "
