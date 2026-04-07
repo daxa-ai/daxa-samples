@@ -29,6 +29,13 @@ import streamlit as st
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Module-level PKCE store — survives Streamlit session resets on OAuth redirect
+# Key: state_token (the random suffix of daxa_mcp:{service}:{state_token})
+# Value: {"verifier": str, "metadata": dict, "client_id": str, "client_secret": str|None}
+# ---------------------------------------------------------------------------
+_PKCE_STORE: dict = {}
+
 
 # ---------------------------------------------------------------------------
 # PKCE helpers
@@ -246,9 +253,7 @@ def _build_auth_url_from_discovered(
         direct_auth_url = _normalize_https(direct_auth_url, mcp_url)
         verifier, challenge = _generate_pkce()
         state_token = secrets.token_urlsafe(16)
-        st.session_state[_sk(service, "pkce")] = verifier
-        st.session_state[_sk(service, "state")] = state_token
-        st.session_state[_sk(service, "metadata")] = {"authorization_endpoint": direct_auth_url}
+        meta_direct = {"authorization_endpoint": direct_auth_url}
 
         parsed = urllib.parse.urlparse(direct_auth_url)
         existing_params = dict(urllib.parse.parse_qsl(parsed.query))
@@ -262,6 +267,17 @@ def _build_auth_url_from_discovered(
             client_id = st.session_state.get(_sk(service, "client_id"), f"daxa-chatbot-{service}")
             existing_params["client_id"] = client_id
             st.session_state[_sk(service, "client_id")] = client_id
+        else:
+            client_id = existing_params["client_id"]
+
+        # Persist PKCE state in process-level store (survives session reset on redirect)
+        _PKCE_STORE[state_token] = {
+            "verifier": verifier,
+            "metadata": meta_direct,
+            "client_id": client_id,
+            "client_secret": None,
+        }
+        logger.info("[OAuth] Stored PKCE for state_token=%s (direct path)", state_token)
 
         final = parsed._replace(query=urllib.parse.urlencode(existing_params)).geturl()
         logger.info("[OAuth] Built auth URL (direct): %s", final)
@@ -284,6 +300,15 @@ def _build_auth_url_from_discovered(
     # Fix http → https if the server returned a wrong scheme
     auth_endpoint = _normalize_https(auth_endpoint, mcp_url)
     logger.info("[OAuth] auth_endpoint (normalized): %s", auth_endpoint)
+
+    # Write normalized auth_endpoint back into metadata so token_endpoint
+    # normalization in handle_oauth_callback has a valid https:// reference
+    metadata = dict(metadata)  # shallow copy — don't mutate caller's dict
+    metadata["authorization_endpoint"] = auth_endpoint
+    # Also normalize token_endpoint now while we have mcp_url as reference
+    if "token_endpoint" in metadata:
+        metadata["token_endpoint"] = _normalize_https(metadata["token_endpoint"], mcp_url)
+        logger.info("[OAuth] token_endpoint (normalized): %s", metadata["token_endpoint"])
 
     # Reuse or dynamically register a client_id
     client_id: Optional[str] = st.session_state.get(_sk(service, "client_id"))
@@ -308,9 +333,15 @@ def _build_auth_url_from_discovered(
 
     verifier, challenge = _generate_pkce()
     state_token = secrets.token_urlsafe(16)
-    st.session_state[_sk(service, "pkce")] = verifier
-    st.session_state[_sk(service, "state")] = state_token
-    st.session_state[_sk(service, "metadata")] = metadata
+
+    # Persist PKCE state in process-level store (survives session reset on redirect)
+    _PKCE_STORE[state_token] = {
+        "verifier": verifier,
+        "metadata": metadata,
+        "client_id": client_id,
+        "client_secret": st.session_state.get(_sk(service, "client_secret")),
+    }
+    logger.info("[OAuth] Stored PKCE for state_token=%s (well-known path)", state_token)
 
     params: dict = {
         "response_type": "code",
@@ -376,16 +407,31 @@ def handle_oauth_callback(redirect_uri: str) -> Optional[str]:
 
     _, service, orig_state = parts
 
-    if orig_state != st.session_state.get(_sk(service, "state")):
+    # Look up PKCE state from process-level store (robust to Streamlit session resets)
+    pkce_entry = _PKCE_STORE.get(orig_state)
+    if not pkce_entry:
         st.error("OAuth state mismatch — please try connecting again.")
+        logger.warning("[OAuth] No PKCE entry found for state_token=%s (known states: %s)",
+                       orig_state, list(_PKCE_STORE.keys()))
         st.query_params.clear()
         return None
 
-    metadata: dict = st.session_state.get(_sk(service, "metadata"), {})
+    # Clean up used entry immediately
+    _PKCE_STORE.pop(orig_state, None)
+
+    metadata: dict = pkce_entry.get("metadata", {})
     token_endpoint = metadata.get("token_endpoint")
-    client_id = st.session_state.get(_sk(service, "client_id"))
-    client_secret = st.session_state.get(_sk(service, "client_secret"))
-    verifier = st.session_state.get(_sk(service, "pkce"))
+    # Normalize http→https using the auth endpoint as reference (same server)
+    auth_ep_ref = metadata.get("authorization_endpoint", "")
+    if token_endpoint and auth_ep_ref:
+        token_endpoint = _normalize_https(token_endpoint, auth_ep_ref)
+    client_id = pkce_entry.get("client_id")
+    client_secret = pkce_entry.get("client_secret")
+    verifier = pkce_entry.get("verifier")
+
+    # Persist client_id in session for potential reuse (skips re-registration)
+    if client_id:
+        st.session_state[_sk(service, "client_id")] = client_id
 
     if not token_endpoint:
         # Server gave a direct auth URL without a separate token endpoint —
@@ -404,6 +450,7 @@ def handle_oauth_callback(redirect_uri: str) -> Optional[str]:
         return None
 
     payload: dict = {
+        
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": redirect_uri,
