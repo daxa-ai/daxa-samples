@@ -81,15 +81,23 @@ MODEL=gpt-4o-mini
 # ── MCP user path segment ({user_id} in /mcp/{user_id}/{server}) ─────────────
 MCP_USER_ID=<your-proxima-user-slug>
 
+# ── Feature flags — set to True to show that server section in the sidebar ───
+ATLASSIAN_OAUTH=True        # Show Atlassian (OAuth) expander + Connect button
+ATLASSIAN_DOCKER=True       # Show Atlassian (no-auth / Docker) expander
+CUSTOMER_BILLING=True       # Show Customer Billing expander
+
 # ── Safe Agent MCP URLs (via Proxima gateway) ─────────────────────────────────
 ATLASSIAN_MCP_URL=https://<proxima-host>/mcp/<user_id>/<atlassian-server-name>
-ATLASSIAN_API_KEY=pebblo_<atlassian-server-key>
+ATLASSIAN_API_KEY=pebblo_<atlassian-oauth-server-key>
+
+ATLASSIAN_DOCKER_MCP_URL=https://<proxima-host>/mcp/<user_id>/<atlassian-docker-server-name>
+ATLASSIAN_DOCKER_API_KEY=pebblo_<atlassian-docker-server-key>
 
 CUSTOMER_BILLING_MCP_URL=https://<proxima-host>/mcp/<user_id>/<billing-server-name>
 CUSTOMER_BILLING_API_KEY=pebblo_<billing-server-key>
 
 # ── Direct Agent MCP URLs (no Proxima — connect straight to upstream) ─────────
-DIRECT_ATLASSIAN_MCP_URL=https://mcp.atlassian.com/v1/sse
+DIRECT_ATLASSIAN_MCP_URL=https://<direct-atlassian-mcp-host>/mcp
 DIRECT_CUSTOMER_BILLING_MCP_URL=https://billing-mcp.daxa.ai/mcp
 
 # ── OAuth redirect URIs (must match the Streamlit app URL exactly) ───────────
@@ -97,7 +105,7 @@ DAXA_REDIRECT_URI=http://localhost:8501
 DAXA_TEST_REDIRECT_URI=http://localhost:8501/test
 ```
 
-> **Note:** `ATLASSIAN_API_KEY` / `CUSTOMER_BILLING_API_KEY` are **per-server** Pebblo keys issued by Proxima — used only in Safe Agent mode. Direct Agent sends no Pebblo headers.
+> **Note:** `ATLASSIAN_API_KEY` / `ATLASSIAN_DOCKER_API_KEY` / `CUSTOMER_BILLING_API_KEY` are **per-server** Pebblo keys issued by Proxima — used only in Safe Agent mode. Direct Agent sends no Pebblo headers.
 
 ### 5. Run the app
 
@@ -142,17 +150,22 @@ A LangGraph agent that connects to MCP servers **via the Proxima gateway** with 
 
 #### Step 1 — Configure MCP Servers
 
-Expand the **MCP Servers** section. Each server has:
-- **MCP URL** — pre-filled from `.env` (`ATLASSIAN_MCP_URL` / `CUSTOMER_BILLING_MCP_URL`)
+Expand the **MCP Servers** section in the sidebar. Server expanders are **collapsed by default** — click to open. A 🟢 badge indicates the URL is already configured from `.env`.
+
+Which servers appear is controlled by feature flags in `.env`:
+
+| Flag | Server shown | Transport | Auth |
+|------|-------------|-----------|------|
+| `ATLASSIAN_OAUTH=True` | **Atlassian (OAuth)** + 🔐 Connect button | SSE | Pebblo API key + OAuth 2.0 + PKCE |
+| `ATLASSIAN_DOCKER=True` | **Atlassian** (no OAuth) | Streamable HTTP | Pebblo API key only |
+| `CUSTOMER_BILLING=True` | **Customer Billing** | Streamable HTTP | Pebblo API key only |
+
+Each expander has:
+- **MCP URL** — pre-filled from `.env`; edit if needed
 - **Pebblo API Key** — pre-filled from `.env`; the per-server key issued by Proxima
 - **Save** — persists URL + key for the session
 
-| Server | Transport | Auth |
-|--------|-----------|------|
-| Atlassian (Jira/Confluence) | SSE | Pebblo API key + OAuth 2.0 + PKCE |
-| Customer Billing | Streamable HTTP | Pebblo API key |
-
-#### Step 2 — Connect OAuth (Atlassian)
+#### Step 2 — Connect OAuth (Atlassian — only when `ATLASSIAN_OAUTH=True`)
 
 1. Click **🔐 Connect to Atlassian**.
 2. The app auto-discovers the OAuth endpoint:
@@ -183,35 +196,51 @@ Headers sent to Proxima per request:
 | `x-pebblo-auth` | `Bearer <server-api-key>` | Per-server Pebblo authentication |
 | `x-pebblo-users` | `<user-email>` | Identity forwarding |
 | `x-pebblo-user-groups` | `<group>` | Group-based access control |
-| `Authorization` | `Bearer <oauth-token>` | OAuth token for Atlassian |
+| `Authorization` | `Bearer <oauth-token>` | OAuth token for Atlassian (OAuth server only) |
 
 ---
 
 ### Direct Agent
 
-Same LangGraph agent architecture as Safe Agent, but connects **directly to the upstream MCP services** — no Proxima gateway, no Pebblo headers of any kind.
+Same LangGraph agent as Safe Agent, but connects **directly to the upstream MCP services** — no Proxima gateway, no Pebblo headers.
 
 #### Step 1 — Configure MCP Servers
 
-Expand the **MCP Servers** section. Each server shows only a **URL** field (no API key):
-- **Atlassian URL** — pre-filled from `DIRECT_ATLASSIAN_MCP_URL` (default: `https://mcp.atlassian.com/v1/sse`)
-- **Customer Billing URL** — pre-filled from `DIRECT_CUSTOMER_BILLING_MCP_URL` (default: `https://billing-mcp.daxa.ai/mcp`)
+Server expanders are **collapsed by default** — click to open. A 🟢 badge indicates the URL is already configured.
 
-#### Step 2 — Connect OAuth (Atlassian)
+Which servers appear is controlled by the same feature flags:
 
-Same OAuth 2.0 + PKCE flow as Safe Agent. Uses a **separate token** (stored under `direct_atlassian`) so Safe Agent and Direct Agent OAuth sessions are independent.
+| Flag | Server shown | Transport | Auth |
+|------|-------------|-----------|------|
+| `ATLASSIAN_OAUTH=True` | **Atlassian (OAuth)** + 🔐 Connect button | SSE | OAuth token only |
+| `ATLASSIAN_DOCKER=True` | **Atlassian** (no auth) | Streamable HTTP | None |
+| `CUSTOMER_BILLING=True` | **Customer Billing** | Streamable HTTP | None |
+
+Each expander shows only a **URL** field — no Pebblo API key.
+
+#### Step 2 — Connect OAuth (Atlassian — only when `ATLASSIAN_OAUTH=True`)
+
+Same OAuth 2.0 + PKCE flow as Safe Agent. The Direct Agent uses a **separate token** (stored under `direct_atlassian`) so Safe Agent and Direct Agent OAuth sessions are independent.
 
 #### Step 3 — Send a query
 
-Same LangGraph loop. Only the `Authorization: Bearer <oauth-token>` header is sent to Atlassian. No Pebblo headers, no API keys.
+Same LangGraph loop. Headers per server:
+- **Atlassian (OAuth):** `Authorization: Bearer <token>` only
+- **Atlassian (Docker) / Customer Billing:** no headers
 
-| | Safe Agent | Direct Agent |
-|---|---|---|
-| Gateway | Proxima | None (direct) |
-| `x-pebblo-auth` | ✅ | ❌ |
-| `x-pebblo-users` / groups | ✅ | ❌ |
-| `Authorization` (OAuth) | ✅ Atlassian | ✅ Atlassian |
-| URL env vars | `ATLASSIAN_MCP_URL` | `DIRECT_ATLASSIAN_MCP_URL` |
+---
+
+## Feature Flags
+
+All three flags live in `.env` and take effect on app restart (or reload):
+
+```env
+ATLASSIAN_OAUTH=True    # Atlassian with OAuth — shows URL + Pebblo key (Safe Agent) or URL only (Direct Agent) + Connect button
+ATLASSIAN_DOCKER=True   # Atlassian without OAuth — shows URL + Pebblo key (Safe) or URL only (Direct)
+CUSTOMER_BILLING=True   # Customer Billing — shows URL + Pebblo key (Safe) or URL only (Direct)
+```
+
+Setting a flag to `False` hides the expander **and** prevents that server from being included in the MCP client when a query is sent.
 
 ---
 
@@ -242,7 +271,8 @@ call_model  ──── (has tool_calls?) ────► tools
 
 | Server | Transport | Why |
 |--------|-----------|-----|
-| Atlassian | `sse` | Upstream `https://mcp.atlassian.com/v1/sse` is SSE-based; requires a GET handshake to obtain a `sessionId` before POSTing messages |
+| Atlassian (OAuth) | `sse` | Upstream is SSE-based; requires a GET handshake to obtain a `sessionId` before POSTing messages |
+| Atlassian (Docker / no-auth) | `streamable_http` | Local/Docker server; accepts POST directly |
 | Customer Billing | `streamable_http` | Standard HTTP JSON-RPC; accepts POST directly |
 
 > Using `streamable_http` for an SSE-based server returns 404 `"Missing sessionId parameter"` — the GET handshake that assigns a session is skipped.
@@ -255,7 +285,7 @@ call_model  ──── (has tool_calls?) ────► tools
 - Confirm the correct **per-server** Pebblo API key is entered. Each server on Proxima has its own key — the global `PEBBLO_API_KEY` is for Safe Infer only.
 
 ### 401 on MCP connection (Direct Agent)
-- No Pebblo key is needed. If Atlassian returns 401, click **Connect** to re-run the OAuth flow and get a fresh token.
+- No Pebblo key is needed. If Atlassian (OAuth) returns 401, click **Connect** to re-run the OAuth flow and get a fresh token.
 
 ### OAuth state mismatch
 - Click **Connect** again to start a new PKCE flow. This can happen if the Streamlit process restarted between the connect click and the redirect.
@@ -264,8 +294,12 @@ call_model  ──── (has tool_calls?) ────► tools
 - The token endpoint in the well-known metadata uses `http://` but the server is `https://`. The app normalises this automatically. If it persists, verify `DAXA_REDIRECT_URI` exactly matches the app URL.
 
 ### 404 on Atlassian MCP (POST)
-- Confirms the transport is `sse`, not `streamable_http` (`build_mcp_servers` / `build_direct_mcp_servers` in `mcp_utils.py`).
-- For Safe Agent: verify the Atlassian server is running on your Proxima instance (check the Redis routing cache — `host=None, port=None` means the backend process is not registered).
+- Confirms the transport is `sse` for OAuth Atlassian and `streamable_http` for Docker Atlassian.
+- For Safe Agent: verify the Atlassian server is running on your Proxima instance (Redis routing cache — `host=None, port=None` means the backend process is not registered).
+
+### Server not appearing in sidebar
+- Check the corresponding feature flag in `.env` is set to `True`.
+- Restart the app after changing `.env` values.
 
 ### Tools fetched but not used
 - Confirm `OPENAI_API_KEY` is set and valid.
@@ -289,5 +323,3 @@ Open `http://localhost:8501/test` for additional controls:
 ---
 
 **Powered by Daxa Proxima · SafeInfer · OpenAI · LangGraph · MCP**
-
-
