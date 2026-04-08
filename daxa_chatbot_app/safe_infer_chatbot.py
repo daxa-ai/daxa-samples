@@ -520,13 +520,13 @@ with st.sidebar:
         st.markdown("---")
         st.subheader("👤 User Context")
         mcp_user_input = st.text_input(
-            "x-pebblo-users",
+            "User",
             value="",
             key="mcp_user_input",
             placeholder="Leave empty to use env",
         )
         mcp_groups_input = st.text_input(
-            "x-pebblo-user-groups",
+            "User Groups",
             value="",
             key="mcp_groups_input",
             placeholder="Leave empty to use env",
