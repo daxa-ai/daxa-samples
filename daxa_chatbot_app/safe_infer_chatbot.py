@@ -39,11 +39,16 @@ from utils import (
 )
 from mcp_utils import (
     ATLASSIAN_MCP_URL,
-    CUSTOMER_BILLING_MCP_URL,
     ATLASSIAN_API_KEY,
+    ATLASSIAN_DOCKER_MCP_URL,
+    ATLASSIAN_DOCKER_API_KEY,
+    CUSTOMER_BILLING_MCP_URL,
     CUSTOMER_BILLING_API_KEY,
     DIRECT_ATLASSIAN_MCP_URL,
     DIRECT_CUSTOMER_BILLING_MCP_URL,
+    SHOW_ATLASSIAN_OAUTH,
+    SHOW_ATLASSIAN_DOCKER,
+    SHOW_CUSTOMER_BILLING,
     build_mcp_servers,
     build_direct_mcp_servers,
     stream_query_steps as mcp_stream_query_steps,
@@ -411,7 +416,7 @@ with st.sidebar:
             """URL-only expander for Direct Agent (no Pebblo API key field)."""
             is_set = bool(st.session_state.get(url_key) or env_url)
             badge = "🟢" if is_set else "⚪"
-            with st.expander(f"{label}  {badge}", expanded=is_set):
+            with st.expander(f"{label}  {badge}", expanded=False):
                 st.text_input(
                     "MCP URL",
                     value=st.session_state.get(url_key) or env_url or "",
@@ -428,20 +433,27 @@ with st.sidebar:
             # No Pebblo user headers in Direct mode — empty dict for OAuth probe
             return {}
 
-        _direct_server_expander(
-            "Atlassian", DIRECT_ATLASSIAN_MCP_URL or "", "direct_atlassian_url", "direct_atlassian_save"
-        )
-        render_oauth_connect_button(
-            "direct_atlassian", "Atlassian",
-            mcp_url=st.session_state.get("direct_atlassian_url", "") or DIRECT_ATLASSIAN_MCP_URL or "",
-            redirect_uri=_MAIN_REDIRECT_URI,
-            button_key="direct_atlassian_oauth_btn",
-            pebblo_headers=_direct_pebblo_headers_for_oauth(),
-        )
+        if SHOW_ATLASSIAN_OAUTH:
+            _direct_server_expander(
+                "Atlassian (OAuth)", ATLASSIAN_MCP_URL or "", "direct_atlassian_oauth_url", "direct_atlassian_oauth_save"
+            )
+            render_oauth_connect_button(
+                "direct_atlassian", "Atlassian",
+                mcp_url=st.session_state.get("direct_atlassian_oauth_url", "") or ATLASSIAN_MCP_URL or "",
+                redirect_uri=_MAIN_REDIRECT_URI,
+                button_key="direct_atlassian_oauth_btn",
+                pebblo_headers=_direct_pebblo_headers_for_oauth(),
+            )
 
-        _direct_server_expander(
-            "Customer Billing", DIRECT_CUSTOMER_BILLING_MCP_URL or "", "direct_billing_url", "direct_billing_save"
-        )
+        if SHOW_ATLASSIAN_DOCKER:
+            _direct_server_expander(
+                "Atlassian", DIRECT_ATLASSIAN_MCP_URL or "", "direct_atlassian_url", "direct_atlassian_save"
+            )
+
+        if SHOW_CUSTOMER_BILLING:
+            _direct_server_expander(
+                "Customer Billing", DIRECT_CUSTOMER_BILLING_MCP_URL or "", "direct_billing_url", "direct_billing_save"
+            )
 
         st.subheader("📊 Statistics")
         st.metric("Queries", len(st.session_state.get("direct_mcp_responses", [])))
@@ -453,7 +465,7 @@ with st.sidebar:
             """Render URL + API key inputs for one MCP server. Returns (url, api_key)."""
             is_set = bool(st.session_state.get(url_key) or env_url)
             badge = "🟢" if is_set else "⚪"
-            with st.expander(f"{label}  {badge}", expanded=is_set):
+            with st.expander(f"{label}  {badge}", expanded=False):
                 url = st.text_input(
                     "MCP URL",
                     value=st.session_state.get(url_key) or env_url or "",
@@ -480,22 +492,30 @@ with st.sidebar:
                 pebblo_user_groups=st.session_state.get("mcp_groups_input") or None,
             )
 
-        atlassian_url, atlassian_api_key = _server_expander(
-            "Atlassian", ATLASSIAN_MCP_URL or "", "atlassian_url",
-            ATLASSIAN_API_KEY or "", "atlassian_api_key", "atlassian_save"
-        )
-        render_oauth_connect_button(
-            "atlassian", "Atlassian",
-            mcp_url=st.session_state.get("atlassian_url", "") or ATLASSIAN_MCP_URL or "",
-            redirect_uri=_MAIN_REDIRECT_URI,
-            button_key="atlassian_oauth_btn",
-            pebblo_headers=_pebblo_headers_for_oauth(),
-        )
+        if SHOW_ATLASSIAN_OAUTH:
+            _server_expander(
+                "Atlassian (OAuth)", ATLASSIAN_MCP_URL or "", "atlassian_url",
+                ATLASSIAN_API_KEY or "", "atlassian_api_key", "atlassian_save"
+            )
+            render_oauth_connect_button(
+                "atlassian", "Atlassian",
+                mcp_url=st.session_state.get("atlassian_url", "") or ATLASSIAN_MCP_URL or "",
+                redirect_uri=_MAIN_REDIRECT_URI,
+                button_key="atlassian_oauth_btn",
+                pebblo_headers=_pebblo_headers_for_oauth(),
+            )
 
-        billing_url, billing_api_key = _server_expander(
-            "Customer Billing", CUSTOMER_BILLING_MCP_URL or "", "billing_url",
-            CUSTOMER_BILLING_API_KEY or "", "billing_api_key", "billing_save"
-        )
+        if SHOW_ATLASSIAN_DOCKER:
+            _server_expander(
+                "Atlassian", ATLASSIAN_DOCKER_MCP_URL or "", "atlassian_docker_url",
+                ATLASSIAN_DOCKER_API_KEY or "", "atlassian_docker_api_key", "atlassian_docker_save"
+            )
+
+        if SHOW_CUSTOMER_BILLING:
+            _server_expander(
+                "Customer Billing", CUSTOMER_BILLING_MCP_URL or "", "billing_url",
+                CUSTOMER_BILLING_API_KEY or "", "billing_api_key", "billing_save"
+            )
 
         st.markdown("---")
         st.subheader("👤 User Context")
@@ -666,9 +686,10 @@ elif mode == "Direct Agent":
 
     if direct_mcp_send and direct_mcp_query.strip():
         direct_mcp_servers = build_direct_mcp_servers(
-            atlassian_url=st.session_state.get("direct_atlassian_url", ""),
-            billing_url=st.session_state.get("direct_billing_url", ""),
-            atlassian_token=get_oauth_token("direct_atlassian"),
+            atlassian_url=st.session_state.get("direct_atlassian_url", "") if SHOW_ATLASSIAN_DOCKER else "",
+            atlassian_oauth_url=st.session_state.get("direct_atlassian_oauth_url", "") if SHOW_ATLASSIAN_OAUTH else "",
+            atlassian_token=get_oauth_token("direct_atlassian") if SHOW_ATLASSIAN_OAUTH else None,
+            billing_url=st.session_state.get("direct_billing_url", "") if SHOW_CUSTOMER_BILLING else "",
         )
         if not direct_mcp_servers:
             st.error("Configure at least one MCP server URL in the sidebar.")
@@ -702,13 +723,15 @@ elif mode == "Safe Agent":
 
     if mcp_send and mcp_query.strip():
         mcp_servers = build_mcp_servers(
-            atlassian_url=st.session_state.get("atlassian_url", ""),
-            atlassian_api_key=st.session_state.get("atlassian_api_key", ""),
-            billing_url=st.session_state.get("billing_url", ""),
-            billing_api_key=st.session_state.get("billing_api_key", ""),
+            atlassian_url=st.session_state.get("atlassian_url", "") if SHOW_ATLASSIAN_OAUTH else "",
+            atlassian_api_key=st.session_state.get("atlassian_api_key", "") if SHOW_ATLASSIAN_OAUTH else "",
+            atlassian_docker_url=st.session_state.get("atlassian_docker_url", "") if SHOW_ATLASSIAN_DOCKER else "",
+            atlassian_docker_api_key=st.session_state.get("atlassian_docker_api_key", "") if SHOW_ATLASSIAN_DOCKER else "",
+            billing_url=st.session_state.get("billing_url", "") if SHOW_CUSTOMER_BILLING else "",
+            billing_api_key=st.session_state.get("billing_api_key", "") if SHOW_CUSTOMER_BILLING else "",
             pebblo_user=st.session_state.get("mcp_user_input", ""),
             pebblo_user_groups=st.session_state.get("mcp_groups_input", ""),
-            atlassian_token=get_oauth_token("atlassian"),
+            atlassian_token=get_oauth_token("atlassian") if SHOW_ATLASSIAN_OAUTH else None,
         )
         if not mcp_servers:
             st.error("Configure at least one MCP server URL in the sidebar.")

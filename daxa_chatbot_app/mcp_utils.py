@@ -26,11 +26,21 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 ATLASSIAN_API_KEY = os.getenv("ATLASSIAN_API_KEY", "").strip() or None
 CUSTOMER_BILLING_API_KEY = os.getenv("CUSTOMER_BILLING_API_KEY", "").strip() or None
 ATLASSIAN_MCP_URL = os.getenv("ATLASSIAN_MCP_URL", "").strip() or None
+ATLASSIAN_API_KEY = os.getenv("ATLASSIAN_API_KEY", "").strip() or None
 CUSTOMER_BILLING_MCP_URL = os.getenv("CUSTOMER_BILLING_MCP_URL", "").strip() or None
+
+# Atlassian Docker — no OAuth, Pebblo key only (via Proxima, streamable_http)
+ATLASSIAN_DOCKER_MCP_URL = os.getenv("ATLASSIAN_DOCKER_MCP_URL", "").strip() or None
+ATLASSIAN_DOCKER_API_KEY = os.getenv("ATLASSIAN_DOCKER_API_KEY", "").strip() or None
 
 # Direct Agent — upstream URLs (no Proxima gateway)
 DIRECT_ATLASSIAN_MCP_URL = os.getenv("DIRECT_ATLASSIAN_MCP_URL", "").strip() or None
 DIRECT_CUSTOMER_BILLING_MCP_URL = os.getenv("DIRECT_CUSTOMER_BILLING_MCP_URL", "").strip() or None
+
+# Feature flags — control sidebar visibility
+SHOW_ATLASSIAN_OAUTH = os.getenv("ATLASSIAN_OAUTH", "false").strip().lower() == "true"
+SHOW_ATLASSIAN_DOCKER = os.getenv("ATLASSIAN_DOCKER", "false").strip().lower() == "true"
+SHOW_CUSTOMER_BILLING = os.getenv("CUSTOMER_BILLING", "false").strip().lower() == "true"
 
 
 def _pebblo_mcp_headers(
@@ -56,6 +66,8 @@ def _pebblo_mcp_headers(
 def build_mcp_servers(
     atlassian_url: Optional[str] = None,
     atlassian_api_key: Optional[str] = None,
+    atlassian_docker_url: Optional[str] = None,
+    atlassian_docker_api_key: Optional[str] = None,
     billing_url: Optional[str] = None,
     billing_api_key: Optional[str] = None,
     pebblo_user: Optional[str] = None,
@@ -94,6 +106,15 @@ def build_mcp_servers(
             "headers": _headers_for(atlassian_api_key or ATLASSIAN_API_KEY, atlassian_token),
         }
 
+    # Atlassian Docker — no OAuth, Pebblo key only, streamable_http
+    ad_url = (atlassian_docker_url or ATLASSIAN_DOCKER_MCP_URL or "").strip()
+    if ad_url:
+        servers["atlassian-docker"] = {
+            "url": ad_url,
+            "transport": "streamable_http",
+            "headers": _headers_for(atlassian_docker_api_key or ATLASSIAN_DOCKER_API_KEY),
+        }
+
     # Customer Billing — per-server key (no OAuth needed)
     b_url = (billing_url or CUSTOMER_BILLING_MCP_URL or "").strip()
     if b_url:
@@ -108,8 +129,9 @@ def build_mcp_servers(
 
 def build_direct_mcp_servers(
     atlassian_url: Optional[str] = None,
-    billing_url: Optional[str] = None,
+    atlassian_oauth_url: Optional[str] = None,
     atlassian_token: Optional[str] = None,
+    billing_url: Optional[str] = None,
 ) -> Dict[str, dict]:
     """Build MCP server config for Direct Agent mode.
 
@@ -118,14 +140,23 @@ def build_direct_mcp_servers(
     """
     servers: Dict[str, dict] = {}
 
-    # Atlassian — SSE, OAuth token only; falls back to DIRECT_ATLASSIAN_MCP_URL
+    # Atlassian Docker — no auth, streamable_http; falls back to DIRECT_ATLASSIAN_MCP_URL
     a_url = (atlassian_url or DIRECT_ATLASSIAN_MCP_URL or "").strip()
     if a_url:
+        servers["atlassian"] = {
+            "url": a_url,
+            "transport": "streamable_http",
+            "headers": {},
+        }
+
+    # Atlassian OAuth — SSE, OAuth Bearer token only
+    ao_url = (atlassian_oauth_url or ATLASSIAN_MCP_URL or "").strip()
+    if ao_url:
         headers: Dict[str, str] = {}
         if atlassian_token:
             headers["Authorization"] = f"Bearer {atlassian_token}"
-        servers["atlassian"] = {
-            "url": a_url,
+        servers["atlassian-oauth"] = {
+            "url": ao_url,
             "transport": "sse",
             "headers": headers,
         }
