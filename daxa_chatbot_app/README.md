@@ -182,8 +182,8 @@ Each expander has:
 
 #### Step 3 — Set User Context *(optional)*
 
-- **x-pebblo-users** — forwarded to Proxima (defaults to `X_PEBBLO_USER` from `.env`)
-- **x-pebblo-user-groups** — forwarded to Proxima (defaults to `X_PEBBLO_USER_GROUPS` from `.env`)
+- **User** (`x-pebblo-users`) — forwarded to Proxima (defaults to `X_PEBBLO_USER` from `.env`)
+- **User Groups** (`x-pebblo-user-groups`) — forwarded to Proxima (defaults to `X_PEBBLO_USER_GROUPS` from `.env`)
 
 #### Step 4 — Send a query
 
