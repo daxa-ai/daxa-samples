@@ -239,6 +239,7 @@ SHOW_SAFE_INFER=True        # Show/hide the Safe Infer tab (default: True)
 SHOW_INSECURE_INFER=True    # Show/hide the Insecure Inference tab (default: True)
 SHOW_SAFE_AGENT=True        # Show/hide the Safe Agent tab (default: True)
 SHOW_INSECURE_AGENT=True    # Show/hide the Insecure Agent tab (default: True)
+JIRA_TICKETS=KAN-19,KAN-22 # Comma-separated ticket IDs shown in agent sidebars above Recent Tickets (optional)
 ATLASSIAN_OAUTH=True        # Atlassian with OAuth — shows URL + Pebblo key (Safe Agent) or URL only (InSecure Agent) + Connect button
 ATLASSIAN_DOCKER=True       # Atlassian without OAuth — shows URL + Pebblo key (Safe) or URL only (InSecure)
 CUSTOMER_BILLING=True       # Customer Billing — shows URL + Pebblo key (Safe) or URL only (InSecure)

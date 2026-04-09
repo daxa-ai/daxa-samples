@@ -261,6 +261,9 @@ SHOW_INSECURE_INFER  = os.getenv("SHOW_INSECURE_INFER",  "true").strip().lower()
 SHOW_SAFE_AGENT      = os.getenv("SHOW_SAFE_AGENT",      "true").strip().lower() == "true"
 SHOW_INSECURE_AGENT  = os.getenv("SHOW_INSECURE_AGENT",  "true").strip().lower() == "true"
 
+# Comma-separated ticket IDs to display in agent sidebars, e.g. "KAN-19,KAN-22,KAN-46"
+_TICKET_LIST = [t.strip() for t in os.getenv("JIRA_TICKETS", "").split(",") if t.strip()]
+
 _MODE_LABELS = {
     "Safe Infer":     "🟢 Safe Infer",
     "InSecure Infer": "🔴 Insecure Inference",
@@ -269,13 +272,13 @@ _MODE_LABELS = {
 }
 _LABEL_TO_MODE = {v: k for k, v in _MODE_LABELS.items()}
 
-# Display order: row1 = [Safe Infer, Insecure Inference], row2 = [Safe Agent, Insecure Agent]
+# Display order: row1 = [Safe Infer, Insecure Inference], row2 = [Insecure Agent, Safe Agent]
 # Each entry is only included when its feature flag is enabled.
 _MODE_OPTIONS = [
     *(["🟢 Safe Infer"]          if SHOW_SAFE_INFER      else []),
     *(["🔴 Insecure Inference"]  if SHOW_INSECURE_INFER  else []),
-    *(["🟢 Safe Agent"]          if SHOW_SAFE_AGENT       else []),
     *(["🔴 Insecure Agent"]      if SHOW_INSECURE_AGENT   else []),
+    *(["🟢 Safe Agent"]          if SHOW_SAFE_AGENT       else []),
 ]
 
 # Default to the first available option
@@ -483,7 +486,12 @@ with st.sidebar:
             )
 
         st.markdown("---")
-        st.subheader("📝 Recent Tickets")
+        if _TICKET_LIST:
+            st.subheader("🎫 Recent Tickets")
+            for _tid in _TICKET_LIST:
+                st.markdown(f"- `{_tid}`")
+            st.markdown("---")
+        st.subheader("📝 Suggested Queries")
         _INSECURE_AGENT_PROMPTS = [
             ("Threat Protection",                   "Tell me details about KAN-19"),
             ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
@@ -579,7 +587,12 @@ with st.sidebar:
         )
 
         st.markdown("---")
-        st.subheader("📝 Recent Tickets")
+        if _TICKET_LIST:
+            st.subheader("🎫 Recent Tickets")
+            for _tid in _TICKET_LIST:
+                st.markdown(f"- `{_tid}`")
+            st.markdown("---")
+        st.subheader("📝 Suggested Queries")
         _AGENT_PROMPTS = [
             ("Threat Protection",                   "Tell me details about KAN-19"),
             ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
