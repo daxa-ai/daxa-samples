@@ -487,11 +487,11 @@ with st.sidebar:
 
         st.markdown("---")
         if _TICKET_LIST:
-            st.subheader("🎫 Tickets")
+            st.subheader("🎫 Recent Tickets")
             for _tid in _TICKET_LIST:
                 st.markdown(f"- `{_tid}`")
             st.markdown("---")
-        st.subheader("📝 Recent Tickets")
+        st.subheader("📝 Suggested Queries")
         _INSECURE_AGENT_PROMPTS = [
             ("Threat Protection",                   "Tell me details about KAN-19"),
             ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
@@ -588,11 +588,11 @@ with st.sidebar:
 
         st.markdown("---")
         if _TICKET_LIST:
-            st.subheader("🎫 Tickets")
+            st.subheader("🎫 Recent Tickets")
             for _tid in _TICKET_LIST:
                 st.markdown(f"- `{_tid}`")
             st.markdown("---")
-        st.subheader("📝 Recent Tickets")
+        st.subheader("📝 Suggested Queries")
         _AGENT_PROMPTS = [
             ("Threat Protection",                   "Tell me details about KAN-19"),
             ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
