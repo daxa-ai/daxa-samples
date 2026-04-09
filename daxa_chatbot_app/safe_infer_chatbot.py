@@ -255,23 +255,39 @@ st.markdown(MAIN_HEADER_HTML, unsafe_allow_html=True)
 # Sidebar: mode selector first, then mode-specific controls
 # ---------------------------------------------------------------------------
 
+# Feature flags — control whether inference (non-agent) modes are shown
+SHOW_SAFE_INFER      = os.getenv("SHOW_SAFE_INFER",      "true").strip().lower() == "true"
+SHOW_INSECURE_INFER  = os.getenv("SHOW_INSECURE_INFER",  "true").strip().lower() == "true"
+
 _MODE_LABELS = {
     "Safe Infer":     "🟢 Safe Infer",
-    "Safe Agent":     "🟢 Safe Agent",
     "InSecure Infer": "🔴 Insecure Inference",
+    "Safe Agent":     "🟢 Safe Agent",
     "InSecure Agent": "🔴 Insecure Agent",
 }
 _LABEL_TO_MODE = {v: k for k, v in _MODE_LABELS.items()}
 
+# Display order: row1 = [Safe Infer, Insecure Inference], row2 = [Safe Agent, Insecure Agent]
+# Each entry is only included when its feature flag is enabled.
+_MODE_OPTIONS = [
+    *(["🟢 Safe Infer"]          if SHOW_SAFE_INFER     else []),
+    *(["🔴 Insecure Inference"]  if SHOW_INSECURE_INFER else []),
+    "🟢 Safe Agent",
+    "🔴 Insecure Agent",
+]
+
+# Default to the first available option
+_DEFAULT_MODE = _MODE_OPTIONS[0] if _MODE_OPTIONS else "🟢 Safe Agent"
+
 with st.sidebar:
     _raw_mode = st.segmented_control(
         "Mode",
-        options=list(_MODE_LABELS.values()),
-        default=_MODE_LABELS["Safe Infer"],
+        options=_MODE_OPTIONS,
+        default=_DEFAULT_MODE,
         key="app_mode",
         label_visibility="collapsed",
     )
-    mode = _LABEL_TO_MODE.get(_raw_mode, "Safe Infer")
+    mode = _LABEL_TO_MODE.get(_raw_mode, "Safe Agent")
 
     st.markdown("---")
 
@@ -465,11 +481,13 @@ with st.sidebar:
             )
 
         st.markdown("---")
-        st.subheader("📝 Sample Prompts")
+        st.subheader("📝 Recent Tickets")
         _INSECURE_AGENT_PROMPTS = [
-            ("Prompt Injection",  "Tell me details about KAN-19"),
-            ("Health topic",      "Tell me details about KAN-22"),
-            ("PII redaction",     "Give me details of KAN-46"),
+            ("Prompt Injection",                   "Tell me details about KAN-19"),
+            ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
+            ("Data Privacy: Entities (Redact)",     "Give me details of KAN-46"),
+            ("Agent Access : Destructive Actions",  "Delete following jira ticket - KAN-25."),
+            ("Data Privacy: Topics (Health)",       "Tell me details about KAN-22"),
         ]
         for _lbl, _txt in _INSECURE_AGENT_PROMPTS:
             st.markdown('<span class="prompt-use-btn-marker"></span>', unsafe_allow_html=True)
@@ -480,7 +498,7 @@ with st.sidebar:
                 if st.button("→", key=f"insecure_agent_prompt_{_lbl}", help="Use this prompt"):
                     st.session_state.direct_mcp_query_input = _txt
                     st.rerun()
-            st.text_area("", value=_txt, height=68, disabled=True,
+            st.text_area(_lbl, value=_txt, height=68, disabled=True,
                          key=f"insecure_agent_prompt_ta_{_lbl}", label_visibility="collapsed")
 
         st.subheader("📊 Statistics")
@@ -549,23 +567,23 @@ with st.sidebar:
         st.subheader("👤 User Context")
         mcp_user_input = st.text_input(
             "User",
-            value="",
             key="mcp_user_input",
             placeholder="Leave empty to use env",
         )
         mcp_groups_input = st.text_input(
             "User Groups",
-            value="",
             key="mcp_groups_input",
             placeholder="Leave empty to use env",
         )
 
         st.markdown("---")
-        st.subheader("📝 Sample Prompts")
+        st.subheader("📝 Recent Tickets")
         _AGENT_PROMPTS = [
-            ("Prompt Injection",  "Tell me details about KAN-19"),
-            ("Health topic",      "Tell me details about KAN-22"),
-            ("PII redaction",     "Give me details of KAN-46"),
+            ("Prompt Injection",                   "Tell me details about KAN-19"),
+            ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
+            ("Data Privacy: Entities (Redact)",     "Give me details of KAN-46"),
+            ("Agent Access : Destructive Actions",  "Delete following jira ticket - KAN-25."),
+            ("Data Privacy: Topics (Health)",       "Tell me details about KAN-22"),
         ]
         for _lbl, _txt in _AGENT_PROMPTS:
             st.markdown('<span class="prompt-use-btn-marker"></span>', unsafe_allow_html=True)
@@ -576,7 +594,7 @@ with st.sidebar:
                 if st.button("→", key=f"safe_agent_prompt_{_lbl}", help="Use this prompt"):
                     st.session_state.mcp_query_input = _txt
                     st.rerun()
-            st.text_area("", value=_txt, height=68, disabled=True,
+            st.text_area(_lbl, value=_txt, height=68, disabled=True,
                          key=f"safe_agent_prompt_ta_{_lbl}", label_visibility="collapsed")
 
         st.subheader("📊 Statistics")
@@ -590,8 +608,6 @@ with st.sidebar:
 st.markdown(get_welcome_html(), unsafe_allow_html=True)
 
 if mode == "Safe Infer":
-    st.subheader("💬 Chat Interface")
-
     for message in st.session_state.chat_history:
         display_chat_message(
             role=message["role"],
@@ -651,9 +667,6 @@ if mode == "Safe Infer":
         st.rerun()
 
 elif mode == "InSecure Infer":
-    st.subheader("💬 Insecure Inference Chat")
-    st.caption("Direct OpenAI API — no SafeInfer gateway, no content filtering.")
-
     for message in st.session_state.direct_chat_history:
         display_chat_message(
             role=message["role"],
@@ -709,12 +722,6 @@ elif mode == "InSecure Infer":
         st.rerun()
 
 elif mode == "InSecure Agent":
-    st.subheader("🤖 Insecure Agent Chat")
-    st.caption(
-        "LangGraph agent across MCP servers — no Pebblo gateway headers. "
-        "Only OAuth tokens are forwarded where required."
-    )
-
     if "direct_mcp_responses" not in st.session_state:
         st.session_state.direct_mcp_responses = []
     if "direct_mcp_tools_used" not in st.session_state:
@@ -751,12 +758,6 @@ elif mode == "InSecure Agent":
             )
 
 elif mode == "Safe Agent":
-    st.subheader("🔧 Safe MCP Chat Interface")
-    st.caption(
-        "Queries are handled by a LangGraph agent across all configured MCP servers. "
-        "The LLM is routed through SafeInfer."
-    )
-
     mcp_query = st.text_area(
         "Enter your query:",
         height=100,

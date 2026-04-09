@@ -56,7 +56,7 @@ def _pebblo_mcp_headers(
     headers: Dict[str, str] = {}
     user = (pebblo_user or X_PEBBLO_USER or "").strip()
     if user:
-        headers["x-pebblo-users"] = user
+        headers["x-pebblo-user"] = user
     groups = (pebblo_user_groups or X_PEBBLO_USER_GROUPS or "").strip()
     if groups:
         headers["x-pebblo-user-groups"] = groups
@@ -123,7 +123,6 @@ def build_mcp_servers(
             "transport": "streamable_http",
             "headers": _headers_for(billing_api_key or CUSTOMER_BILLING_API_KEY),
         }
-
     return servers
 
 

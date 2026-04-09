@@ -235,9 +235,11 @@ Same LangGraph loop. Headers per server:
 All three flags live in `.env` and take effect on app restart (or reload):
 
 ```env
-ATLASSIAN_OAUTH=True    # Atlassian with OAuth — shows URL + Pebblo key (Safe Agent) or URL only (InSecure Agent) + Connect button
-ATLASSIAN_DOCKER=True   # Atlassian without OAuth — shows URL + Pebblo key (Safe) or URL only (InSecure)
-CUSTOMER_BILLING=True   # Customer Billing — shows URL + Pebblo key (Safe) or URL only (InSecure)
+SHOW_SAFE_INFER=True        # Show/hide the Safe Infer tab (default: True)
+SHOW_INSECURE_INFER=True    # Show/hide the Insecure Inference tab (default: True)
+ATLASSIAN_OAUTH=True        # Atlassian with OAuth — shows URL + Pebblo key (Safe Agent) or URL only (InSecure Agent) + Connect button
+ATLASSIAN_DOCKER=True       # Atlassian without OAuth — shows URL + Pebblo key (Safe) or URL only (InSecure)
+CUSTOMER_BILLING=True       # Customer Billing — shows URL + Pebblo key (Safe) or URL only (InSecure)
 ```
 
 Setting a flag to `False` hides the expander **and** prevents that server from being included in the MCP client when a query is sent.
