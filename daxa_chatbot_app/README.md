@@ -237,6 +237,8 @@ All three flags live in `.env` and take effect on app restart (or reload):
 ```env
 SHOW_SAFE_INFER=True        # Show/hide the Safe Infer tab (default: True)
 SHOW_INSECURE_INFER=True    # Show/hide the Insecure Inference tab (default: True)
+SHOW_SAFE_AGENT=True        # Show/hide the Safe Agent tab (default: True)
+SHOW_INSECURE_AGENT=True    # Show/hide the Insecure Agent tab (default: True)
 ATLASSIAN_OAUTH=True        # Atlassian with OAuth — shows URL + Pebblo key (Safe Agent) or URL only (InSecure Agent) + Connect button
 ATLASSIAN_DOCKER=True       # Atlassian without OAuth — shows URL + Pebblo key (Safe) or URL only (InSecure)
 CUSTOMER_BILLING=True       # Customer Billing — shows URL + Pebblo key (Safe) or URL only (InSecure)

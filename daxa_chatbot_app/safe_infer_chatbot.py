@@ -255,9 +255,11 @@ st.markdown(MAIN_HEADER_HTML, unsafe_allow_html=True)
 # Sidebar: mode selector first, then mode-specific controls
 # ---------------------------------------------------------------------------
 
-# Feature flags — control whether inference (non-agent) modes are shown
+# Feature flags — control which mode tabs are visible
 SHOW_SAFE_INFER      = os.getenv("SHOW_SAFE_INFER",      "true").strip().lower() == "true"
 SHOW_INSECURE_INFER  = os.getenv("SHOW_INSECURE_INFER",  "true").strip().lower() == "true"
+SHOW_SAFE_AGENT      = os.getenv("SHOW_SAFE_AGENT",      "true").strip().lower() == "true"
+SHOW_INSECURE_AGENT  = os.getenv("SHOW_INSECURE_AGENT",  "true").strip().lower() == "true"
 
 _MODE_LABELS = {
     "Safe Infer":     "🟢 Safe Infer",
@@ -270,10 +272,10 @@ _LABEL_TO_MODE = {v: k for k, v in _MODE_LABELS.items()}
 # Display order: row1 = [Safe Infer, Insecure Inference], row2 = [Safe Agent, Insecure Agent]
 # Each entry is only included when its feature flag is enabled.
 _MODE_OPTIONS = [
-    *(["🟢 Safe Infer"]          if SHOW_SAFE_INFER     else []),
-    *(["🔴 Insecure Inference"]  if SHOW_INSECURE_INFER else []),
-    "🟢 Safe Agent",
-    "🔴 Insecure Agent",
+    *(["🟢 Safe Infer"]          if SHOW_SAFE_INFER      else []),
+    *(["🔴 Insecure Inference"]  if SHOW_INSECURE_INFER  else []),
+    *(["🟢 Safe Agent"]          if SHOW_SAFE_AGENT       else []),
+    *(["🔴 Insecure Agent"]      if SHOW_INSECURE_AGENT   else []),
 ]
 
 # Default to the first available option
