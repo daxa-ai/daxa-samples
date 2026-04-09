@@ -98,7 +98,6 @@ CUSTOM_CSS = """
 MAIN_HEADER_HTML = """
 <div class="main-header">
     <h1>🛡️ Customer Support Chatbot</h1>
-    <p>Helpful assistant for CustomerSupport team</p>
 </div>
 """
 
