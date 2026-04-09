@@ -91,13 +91,14 @@ CUSTOM_CSS = """
         padding: 0.15rem 0.4rem !important;
         font-size: 0.875rem !important;
     }
+
 </style>
 """
 
 MAIN_HEADER_HTML = """
 <div class="main-header">
-    <h1>🛡️ Finance Ops Chatbot</h1>
-    <p>Helpful assistant for Finance Ops team</p>
+    <h1>🛡️ Customer Support Chatbot</h1>
+    <p>Helpful assistant for CustomerSupport team</p>
 </div>
 """
 

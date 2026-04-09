@@ -6,8 +6,8 @@ A Streamlit-based chatbot with four modes selectable from the sidebar tab bar:
 |------|-----|-------------|----------------|
 | **Safe Infer** | SafeInfer (Proxima) | — | ✅ |
 | **Safe Agent** | OpenAI (direct) | Proxima | ✅ |
-| **Direct Infer** | OpenAI (direct) | — | ❌ |
-| **Direct Agent** | OpenAI (direct) | None (upstream direct) | ❌ |
+| **InSecure Infer** | OpenAI (direct) | — | ❌ |
+| **InSecure Agent** | OpenAI (direct) | None (upstream direct) | ❌ |
 
 ---
 
@@ -31,7 +31,7 @@ daxa_chatbot_app/
 ## Prerequisites
 
 - Python 3.11+
-- **OpenAI API key** — used by the LangGraph LLM in all Agent modes and Direct Infer
+- **OpenAI API key** — used by the LangGraph LLM in all Agent modes and InSecure Infer
 - **Proxima (Daxa) gateway** — required for Safe Infer and Safe Agent modes
 - **Pebblo API key per MCP server** — issued by the Proxima admin; required for Safe Agent only
 
@@ -74,7 +74,7 @@ USER_TEAM=YourTeam
 X_PEBBLO_USER=you@example.com
 X_PEBBLO_USER_GROUPS=your-group@example.com
 
-# ── LLM — used by LangGraph in all Agent modes and Direct Infer ──────────────
+# ── LLM — used by LangGraph in all Agent modes and InSecure Infer ────────────
 OPENAI_API_KEY=sk-proj-...
 MODEL=gpt-4o-mini
 
@@ -96,7 +96,7 @@ ATLASSIAN_DOCKER_API_KEY=pebblo_<atlassian-docker-server-key>
 CUSTOMER_BILLING_MCP_URL=https://<proxima-host>/mcp/<user_id>/<billing-server-name>
 CUSTOMER_BILLING_API_KEY=pebblo_<billing-server-key>
 
-# ── Direct Agent MCP URLs (no Proxima — connect straight to upstream) ─────────
+# ── InSecure Agent MCP URLs (no Proxima — connect straight to upstream) ───────
 DIRECT_ATLASSIAN_MCP_URL=https://<direct-atlassian-mcp-host>/mcp
 DIRECT_CUSTOMER_BILLING_MCP_URL=https://billing-mcp.daxa.ai/mcp
 
@@ -105,7 +105,7 @@ DAXA_REDIRECT_URI=http://localhost:8501
 DAXA_TEST_REDIRECT_URI=http://localhost:8501/test
 ```
 
-> **Note:** `ATLASSIAN_API_KEY` / `ATLASSIAN_DOCKER_API_KEY` / `CUSTOMER_BILLING_API_KEY` are **per-server** Pebblo keys issued by Proxima — used only in Safe Agent mode. Direct Agent sends no Pebblo headers.
+> **Note:** `ATLASSIAN_API_KEY` / `ATLASSIAN_DOCKER_API_KEY` / `CUSTOMER_BILLING_API_KEY` are **per-server** Pebblo keys issued by Proxima — used only in Safe Agent mode. InSecure Agent sends no Pebblo headers.
 
 ### 5. Run the app
 
@@ -132,11 +132,11 @@ Sidebar options: API Status · Model selector · Sample Prompts · Export Chat �
 
 ---
 
-### Direct Infer
+### InSecure Infer
 
 Chat directly with OpenAI — no Proxima gateway, no content filtering, no Pebblo headers.
 
-1. Select **Direct Infer** in the sidebar tab bar.
+1. Select **InSecure Infer** in the sidebar tab bar.
 2. Enter a model ID in the sidebar (defaults to `MODEL` from `.env`, e.g. `gpt-4o-mini`).
 3. Type your message and press **🚀 Send**.
 
@@ -200,7 +200,7 @@ Headers sent to Proxima per request:
 
 ---
 
-### Direct Agent
+### InSecure Agent
 
 Same LangGraph agent as Safe Agent, but connects **directly to the upstream MCP services** — no Proxima gateway, no Pebblo headers.
 
@@ -220,7 +220,7 @@ Each expander shows only a **URL** field — no Pebblo API key.
 
 #### Step 2 — Connect OAuth (Atlassian — only when `ATLASSIAN_OAUTH=True`)
 
-Same OAuth 2.0 + PKCE flow as Safe Agent. The Direct Agent uses a **separate token** (stored under `direct_atlassian`) so Safe Agent and Direct Agent OAuth sessions are independent.
+Same OAuth 2.0 + PKCE flow as Safe Agent. The InSecure Agent uses a **separate token** (stored under `direct_atlassian`) so Safe Agent and InSecure Agent OAuth sessions are independent.
 
 #### Step 3 — Send a query
 
@@ -235,9 +235,9 @@ Same LangGraph loop. Headers per server:
 All three flags live in `.env` and take effect on app restart (or reload):
 
 ```env
-ATLASSIAN_OAUTH=True    # Atlassian with OAuth — shows URL + Pebblo key (Safe Agent) or URL only (Direct Agent) + Connect button
-ATLASSIAN_DOCKER=True   # Atlassian without OAuth — shows URL + Pebblo key (Safe) or URL only (Direct)
-CUSTOMER_BILLING=True   # Customer Billing — shows URL + Pebblo key (Safe) or URL only (Direct)
+ATLASSIAN_OAUTH=True    # Atlassian with OAuth — shows URL + Pebblo key (Safe Agent) or URL only (InSecure Agent) + Connect button
+ATLASSIAN_DOCKER=True   # Atlassian without OAuth — shows URL + Pebblo key (Safe) or URL only (InSecure)
+CUSTOMER_BILLING=True   # Customer Billing — shows URL + Pebblo key (Safe) or URL only (InSecure)
 ```
 
 Setting a flag to `False` hides the expander **and** prevents that server from being included in the MCP client when a query is sent.
@@ -246,7 +246,7 @@ Setting a flag to `False` hides the expander **and** prevents that server from b
 
 ## LangGraph Agent Architecture
 
-Used by both Safe Agent and Direct Agent:
+Used by both Safe Agent and InSecure Agent:
 
 ```
 START
@@ -284,7 +284,7 @@ call_model  ──── (has tool_calls?) ────► tools
 ### 401 on MCP connection (Safe Agent)
 - Confirm the correct **per-server** Pebblo API key is entered. Each server on Proxima has its own key — the global `PEBBLO_API_KEY` is for Safe Infer only.
 
-### 401 on MCP connection (Direct Agent)
+### 401 on MCP connection (InSecure Agent)
 - No Pebblo key is needed. If Atlassian (OAuth) returns 401, click **Connect** to re-run the OAuth flow and get a fresh token.
 
 ### OAuth state mismatch
@@ -306,7 +306,7 @@ call_model  ──── (has tool_calls?) ────► tools
 - Check logs for `[Graph] call_model: tool_calls=[]`. If empty, try a more direct query: *"Use get_customer_balance to check balance for customer 123"*.
 
 ### LLM authentication error (401)
-- All Agent modes and Direct Infer use **standard OpenAI** (`OPENAI_API_KEY`) — not the SafeInfer gateway.
+- All Agent modes and InSecure Infer use **standard OpenAI** (`OPENAI_API_KEY`) — not the SafeInfer gateway.
 - Safe Infer uses Proxima (`PROXIMA_HOST` + `PEBBLO_API_KEY`).
 
 ---

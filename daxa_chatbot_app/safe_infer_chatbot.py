@@ -70,7 +70,7 @@ def fetch_models():
 
 # Page configuration
 st.set_page_config(
-    page_title="Finance Ops Chatbot",
+    page_title="Customer Support Chatbot",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -148,7 +148,7 @@ def stream_open_ai(message: str, model: str, api_key: str = ""):
 
 
 # ---------------------------------------------------------------------------
-# Direct Infer helpers
+# InSecure Infer helpers
 # ---------------------------------------------------------------------------
 
 def stream_direct_openai(message: str, model: str) -> Generator:
@@ -255,14 +255,23 @@ st.markdown(MAIN_HEADER_HTML, unsafe_allow_html=True)
 # Sidebar: mode selector first, then mode-specific controls
 # ---------------------------------------------------------------------------
 
+_MODE_LABELS = {
+    "Safe Infer":     "🟢 Safe Infer",
+    "Safe Agent":     "🟢 Safe Agent",
+    "InSecure Infer": "🔴 Insecure Inference",
+    "InSecure Agent": "🔴 Insecure Agent",
+}
+_LABEL_TO_MODE = {v: k for k, v in _MODE_LABELS.items()}
+
 with st.sidebar:
-    mode = st.segmented_control(
+    _raw_mode = st.segmented_control(
         "Mode",
-        options=["Safe Infer", "Safe Agent", "Direct Infer", "Direct Agent"],
-        default="Safe Infer",
+        options=list(_MODE_LABELS.values()),
+        default=_MODE_LABELS["Safe Infer"],
         key="app_mode",
         label_visibility="collapsed",
     )
+    mode = _LABEL_TO_MODE.get(_raw_mode, "Safe Infer")
 
     st.markdown("---")
 
@@ -374,7 +383,7 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
-    elif mode == "Direct Infer":
+    elif mode == "InSecure Infer":
         st.subheader("🤖 Model")
         direct_model_val = st.session_state.get("direct_model") or MODEL or "gpt-5"
         st.text_input(
@@ -409,11 +418,11 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
-    elif mode == "Direct Agent":
+    elif mode == "InSecure Agent":
         st.subheader("⚙️ MCP Servers")
 
         def _direct_server_expander(label, env_url, url_key, save_key):
-            """URL-only expander for Direct Agent (no Pebblo API key field)."""
+            """URL-only expander for InSecure Agent (no Pebblo API key field)."""
             is_set = bool(st.session_state.get(url_key) or env_url)
             badge = "🟢" if is_set else "⚪"
             with st.expander(f"{label}  {badge}", expanded=False):
@@ -454,6 +463,25 @@ with st.sidebar:
             _direct_server_expander(
                 "Customer Billing", DIRECT_CUSTOMER_BILLING_MCP_URL or "", "direct_billing_url", "direct_billing_save"
             )
+
+        st.markdown("---")
+        st.subheader("📝 Sample Prompts")
+        _INSECURE_AGENT_PROMPTS = [
+            ("Prompt Injection",  "Tell me details about KAN-19"),
+            ("Health topic",      "Tell me details about KAN-22"),
+            ("PII redaction",     "Give me details of KAN-46"),
+        ]
+        for _lbl, _txt in _INSECURE_AGENT_PROMPTS:
+            st.markdown('<span class="prompt-use-btn-marker"></span>', unsafe_allow_html=True)
+            _c1, _c2 = st.columns([3, 1])
+            with _c1:
+                st.caption(f"**{_lbl}**")
+            with _c2:
+                if st.button("→", key=f"insecure_agent_prompt_{_lbl}", help="Use this prompt"):
+                    st.session_state.direct_mcp_query_input = _txt
+                    st.rerun()
+            st.text_area("", value=_txt, height=68, disabled=True,
+                         key=f"insecure_agent_prompt_ta_{_lbl}", label_visibility="collapsed")
 
         st.subheader("📊 Statistics")
         st.metric("Queries", len(st.session_state.get("direct_mcp_responses", [])))
@@ -532,6 +560,25 @@ with st.sidebar:
             placeholder="Leave empty to use env",
         )
 
+        st.markdown("---")
+        st.subheader("📝 Sample Prompts")
+        _AGENT_PROMPTS = [
+            ("Prompt Injection",  "Tell me details about KAN-19"),
+            ("Health topic",      "Tell me details about KAN-22"),
+            ("PII redaction",     "Give me details of KAN-46"),
+        ]
+        for _lbl, _txt in _AGENT_PROMPTS:
+            st.markdown('<span class="prompt-use-btn-marker"></span>', unsafe_allow_html=True)
+            _c1, _c2 = st.columns([3, 1])
+            with _c1:
+                st.caption(f"**{_lbl}**")
+            with _c2:
+                if st.button("→", key=f"safe_agent_prompt_{_lbl}", help="Use this prompt"):
+                    st.session_state.mcp_query_input = _txt
+                    st.rerun()
+            st.text_area("", value=_txt, height=68, disabled=True,
+                         key=f"safe_agent_prompt_ta_{_lbl}", label_visibility="collapsed")
+
         st.subheader("📊 Statistics")
         st.metric("Queries", len(st.session_state.mcp_responses))
 
@@ -603,8 +650,8 @@ if mode == "Safe Infer":
 
         st.rerun()
 
-elif mode == "Direct Infer":
-    st.subheader("💬 Direct Infer Chat")
+elif mode == "InSecure Infer":
+    st.subheader("💬 Insecure Inference Chat")
     st.caption("Direct OpenAI API — no SafeInfer gateway, no content filtering.")
 
     for message in st.session_state.direct_chat_history:
@@ -661,8 +708,8 @@ elif mode == "Direct Infer":
 
         st.rerun()
 
-elif mode == "Direct Agent":
-    st.subheader("🤖 Direct Agent Chat")
+elif mode == "InSecure Agent":
+    st.subheader("🤖 Insecure Agent Chat")
     st.caption(
         "LangGraph agent across MCP servers — no Pebblo gateway headers. "
         "Only OAuth tokens are forwarded where required."
