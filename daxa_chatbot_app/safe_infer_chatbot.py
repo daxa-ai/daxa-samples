@@ -483,7 +483,7 @@ with st.sidebar:
         st.markdown("---")
         st.subheader("📝 Recent Tickets")
         _INSECURE_AGENT_PROMPTS = [
-            ("Prompt Injection",                   "Tell me details about KAN-19"),
+            ("Threat Protection",                   "Tell me details about KAN-19"),
             ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
             ("Data Privacy: Entities (Redact)",     "Give me details of KAN-46"),
             ("Agent Access : Destructive Actions",  "Delete following jira ticket - KAN-25."),
@@ -579,7 +579,7 @@ with st.sidebar:
         st.markdown("---")
         st.subheader("📝 Recent Tickets")
         _AGENT_PROMPTS = [
-            ("Prompt Injection",                   "Tell me details about KAN-19"),
+            ("Threat Protection",                   "Tell me details about KAN-19"),
             ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
             ("Data Privacy: Entities (Redact)",     "Give me details of KAN-46"),
             ("Agent Access : Destructive Actions",  "Delete following jira ticket - KAN-25."),
