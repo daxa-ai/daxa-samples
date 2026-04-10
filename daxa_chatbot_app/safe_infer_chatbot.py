@@ -497,7 +497,7 @@ with st.sidebar:
             ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
             ("Data Privacy: Entities (Redact)",     "Give me details of KAN-46"),
             ("Agent Access : Destructive Actions",  "Delete following jira ticket - KAN-25."),
-            ("Data Privacy: Topics (Health)",       "Tell me details about KAN-22"),
+            # ("Data Privacy: Topics (Health)",       "Tell me details about KAN-22"),
         ]
         for _lbl, _txt in _INSECURE_AGENT_PROMPTS:
             st.markdown('<span class="prompt-use-btn-marker"></span>', unsafe_allow_html=True)
@@ -573,18 +573,18 @@ with st.sidebar:
                 CUSTOMER_BILLING_API_KEY or "", "billing_api_key", "billing_save"
             )
 
-        st.markdown("---")
-        st.subheader("👤 User Context")
-        mcp_user_input = st.text_input(
-            "User",
-            key="mcp_user_input",
-            placeholder="Leave empty to use env",
-        )
-        mcp_groups_input = st.text_input(
-            "User Groups",
-            key="mcp_groups_input",
-            placeholder="Leave empty to use env",
-        )
+        # st.markdown("---")
+        # st.subheader("👤 User Context")
+        # mcp_user_input = st.text_input(
+        #     "User",
+        #     key="mcp_user_input",
+        #     placeholder="Leave empty to use env",
+        # )
+        # mcp_groups_input = st.text_input(
+        #     "User Groups",
+        #     key="mcp_groups_input",
+        #     placeholder="Leave empty to use env",
+        # )
 
         st.markdown("---")
         if _TICKET_LIST:
@@ -598,7 +598,7 @@ with st.sidebar:
             ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
             ("Data Privacy: Entities (Redact)",     "Give me details of KAN-46"),
             ("Agent Access : Destructive Actions",  "Delete following jira ticket - KAN-25."),
-            ("Data Privacy: Topics (Health)",       "Tell me details about KAN-22"),
+            # ("Data Privacy: Topics (Health)",       "Tell me details about KAN-22"),
         ]
         for _lbl, _txt in _AGENT_PROMPTS:
             st.markdown('<span class="prompt-use-btn-marker"></span>', unsafe_allow_html=True)
