@@ -164,7 +164,7 @@ def test_api_connection(api_base_url: str = None) -> Dict[str, Any]:
 
 
 def display_chat_message(
-    role: str, content: str, model: str = "", timestamp: str = ""
+    role: str, content: str, model: str = "", timestamp: str = "", time_taken: float = None, time_to_first_token: float = None
 ) -> None:
     """Display a chat message with proper styling. Requires streamlit as st."""
     import streamlit as st
@@ -180,13 +180,18 @@ def display_chat_message(
             unsafe_allow_html=True,
         )
     else:
+        time_info = ""
+        if time_taken is not None:
+            time_info += f" | Total: {time_taken:.2f}s"
+        if time_to_first_token is not None:
+            time_info += f" | TTF: {time_to_first_token:.2f}s"
         st.markdown(
             f"""
         <div class="chat-message bot-message">
             <strong>🤖 AI Assistant:</strong><br>
             {content}
             <div class="model-info">
-                Model: {model} | {timestamp}
+                Model: {model} | {timestamp}{time_info}
             </div>
         </div>
         """,
