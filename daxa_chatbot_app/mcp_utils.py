@@ -21,6 +21,9 @@ load_dotenv(_env_path)
 from utils import API_BASE_URL, API_KEY, MODEL, X_PEBBLO_USER, X_PEBBLO_USER_GROUPS
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+USE_PROXIMA_FOR_INSECURE_AGENT = os.getenv("USE_PROXIMA_FOR_INSECURE_AGENT", "false").strip().lower() == "true"
+SAFE_INFER_CONTEXT = os.getenv("SAFE_INFER_CONTEXT", "false").strip().lower() == "true"
+INSECURE_INFER_CONTEXT = os.getenv("INSECURE_INFER_CONTEXT", "false").strip().lower() == "true"
 
 # Per-server Pebblo API key defaults (each server has its own key)
 ATLASSIAN_API_KEY = os.getenv("ATLASSIAN_API_KEY", "").strip() or None
@@ -172,15 +175,28 @@ def build_direct_mcp_servers(
     return servers
 
 
-def _get_chat_model() -> ChatOpenAI:
-    """Build ChatOpenAI using OpenAI directly (same as atlassian_langgraph_app)."""
-    return ChatOpenAI(model=MODEL or "gpt-4o-mini")
+def _get_chat_model(use_proxima: bool = False) -> ChatOpenAI:
+    """Build ChatOpenAI — optionally routed through SafeInfer/Proxima."""
+    kwargs = {"model": MODEL or "gpt-4o-mini"}
+    if use_proxima:
+        kwargs["base_url"] = f"{API_BASE_URL.rstrip('/')}/safe_infer/llm/v1/"
+        kwargs["api_key"] = API_KEY
+        default_headers = {}
+        if X_PEBBLO_USER:
+            default_headers["X-PEBBLO-USER"] = X_PEBBLO_USER
+        if X_PEBBLO_USER_GROUPS:
+            default_headers["X-PEBBLO-USER-GROUPS"] = X_PEBBLO_USER_GROUPS
+        if default_headers:
+            kwargs["default_headers"] = default_headers
+    print(f"Building ChatOpenAI with kwargs: {kwargs}")
+    return ChatOpenAI(**kwargs)
 
 
 async def setup_langgraph(
     mcp_servers: Dict[str, dict],
     pebblo_user: Optional[str] = None,
     pebblo_user_groups: Optional[str] = None,
+    use_proxima: bool = False,
 ):
     """Build and compile LangGraph bound to all provided MCP servers."""
     if not mcp_servers:
@@ -208,7 +224,7 @@ async def setup_langgraph(
         raise ValueError("No tools available — all configured MCP servers failed to connect.")
     logging.info(f"Retrieved {len(tools)} tools from MCP servers: {[tool.name for tool in tools]}")
     tools_by_name = {tool.name: tool for tool in tools}
-    chat_model = _get_chat_model()
+    chat_model = _get_chat_model(use_proxima=use_proxima)
     model_with_tools = chat_model.bind_tools(tools)
 
     async def async_tool_node(state: MessagesState):
@@ -289,10 +305,11 @@ async def stream_query_steps(
     mcp_servers: Dict[str, dict],
     pebblo_user: Optional[str] = None,
     pebblo_user_groups: Optional[str] = None,
+    use_proxima: bool = False,
 ):
     """Async generator: yields status lines and final answer while running the graph."""
     try:
-        graph = await setup_langgraph(mcp_servers, pebblo_user, pebblo_user_groups)
+        graph = await setup_langgraph(mcp_servers, pebblo_user, pebblo_user_groups, use_proxima=use_proxima)
         inputs = {"messages": [HumanMessage(content=user_input)]}
         yield "Analyzing your query..."
 
