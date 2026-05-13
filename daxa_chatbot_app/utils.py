@@ -32,6 +32,7 @@ RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/"
 LLM_PROVIDER_API_ENDPOINT = f"{API_BASE_URL}/api/llm/provider"
 X_PEBBLO_USER = os.getenv("X_PEBBLO_USER", None)
 X_PEBBLO_USER_GROUPS = os.getenv("X_PEBBLO_USER_GROUPS", None)
+PEBBLO_USERS_LIST = [u.strip() for u in os.getenv("PEBBLO_USERS", "").split(",") if u.strip()]
 MODEL = os.getenv("MODEL", "").strip()
 
 CUSTOM_CSS = """
