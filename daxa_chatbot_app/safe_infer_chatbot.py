@@ -156,6 +156,18 @@ def _doc_title(fpath: str) -> str:
     return ""
 
 
+def _render_citations(cited_files: list) -> str:
+    """Return an HTML string with clickable source links for the given filenames."""
+    links = " &nbsp;|&nbsp; ".join(
+        f'<a href="/app/static/{fname}" target="_blank" style="text-decoration:none;">📄 {fname}</a>'
+        for fname in cited_files
+    )
+    return (
+        f"<div style='margin-top:8px;font-size:0.82rem;color:#666;'>"
+        f"<b>Sources:</b> {links}</div>"
+    )
+
+
 def _render_file_link(fname: str, fpath: str) -> None:
     """Render a sidebar link that opens the file in a new browser tab.
 
@@ -432,6 +444,7 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
              [t["function"]["name"] for t in tools])
 
     result_blocks = []
+    cited_files: list = []
     _MAX_ROUNDS = 5
 
     for round_num in range(_MAX_ROUNDS):
@@ -474,6 +487,12 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
                 result_blocks.append(
                     f"--- Tool result: {tc.function.name}({label}) ---\n{result}\n--- End of result ---"
                 )
+                if tc.function.name == "read_file":
+                    fp = args.get("file_path", "")
+                    if fp:
+                        fname = os.path.basename(fp.strip("/\\"))
+                        if fname and fname not in cited_files:
+                            cited_files.append(fname)
             else:
                 log.info("[tool-loop] skipping empty/failed result for %s", tc.function.name)
 
@@ -484,10 +503,15 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
         if result_blocks:
             break
 
+    # Persist cited files so the UI can render clickable source links after streaming
+    if cited_files:
+        st.session_state["_cited_files"] = cited_files
+
     # Inject all collected tool results into the augmented prompt and stream
     injected = "\n\n".join(result_blocks)
     augmented = f"{injected}\n\nUsing the above content, answer the following:\n{message}"
-    log.info("[tool-loop] augmented prompt length: %d chars, blocks: %d", len(augmented), len(result_blocks))
+    log.info("[tool-loop] augmented prompt length: %d chars, blocks: %d, cited: %s",
+             len(augmented), len(result_blocks), cited_files)
 
     with client.chat.completions.create(
         model=model,
@@ -1044,6 +1068,8 @@ if mode == "Safe Infer":
             model=message.get("model", ""),
             timestamp=message.get("timestamp", ""),
         )
+        if message["role"] == "assistant" and message.get("cited_files"):
+            st.markdown(_render_citations(message["cited_files"]), unsafe_allow_html=True)
 
     user_input = st.text_area(
         "Type your message here:",
@@ -1080,11 +1106,15 @@ if mode == "Safe Infer":
                         pebblo_user_groups=_get_active_pebblo_groups(),
                     )
                 )
+            _cited = st.session_state.pop("_cited_files", [])
+            if _cited:
+                st.markdown(_render_citations(_cited), unsafe_allow_html=True)
             st.session_state.chat_history.append({
                 "role": "assistant",
                 "content": response,
                 "model": st.session_state.selected_model,
                 "timestamp": time.strftime("%H:%M:%S"),
+                "cited_files": _cited,
             })
         except Exception as e:
             error_message = f"❌ Error: {str(e)}"
