@@ -33,6 +33,23 @@ LLM_PROVIDER_API_ENDPOINT = f"{API_BASE_URL}/api/llm/provider"
 X_PEBBLO_USER = os.getenv("X_PEBBLO_USER", None)
 X_PEBBLO_USER_GROUPS = os.getenv("X_PEBBLO_USER_GROUPS", None)
 MODEL = os.getenv("MODEL", "").strip()
+PEBBLO_USERS_LIST = [u.strip() for u in os.getenv("PEBBLO_USERS", "").split(",") if u.strip()]
+
+def _parse_user_groups_map(raw: str) -> dict:
+    """Parse 'user1:group1,group2;user2:group3' into {user: 'group1,group2', ...}."""
+    result = {}
+    for entry in raw.split(";"):
+        entry = entry.strip()
+        if ":" not in entry:
+            continue
+        user, _, groups = entry.partition(":")
+        user = user.strip()
+        groups = groups.strip()
+        if user:
+            result[user] = groups
+    return result
+
+PEBBLO_USER_GROUPS_MAP: dict = _parse_user_groups_map(os.getenv("PEBBLO_USER_GROUPS_MAP", ""))
 
 CUSTOM_CSS = """
 <style>
@@ -194,14 +211,24 @@ def display_chat_message(
         )
 
 
+def format_display_name(value: str) -> str:
+    """Turn 'alice@daxa.ai' → 'Alice' or 'hr_group@daxa.ai' → 'Hr Group'."""
+    if not value:
+        return value
+    local = value.split("@")[0] if "@" in value else value
+    return local.replace("_", " ").replace("-", " ").replace(".", " ").title()
+
+
 def get_welcome_html(user_email: str = None, user_team: str = None) -> str:
     """Return HTML for the welcome message."""
-    email = user_email or USER_EMAIL
-    team = user_team or USER_TEAM
+    raw_email = user_email or USER_EMAIL
+    raw_team = user_team or USER_TEAM
+    display_user = format_display_name(raw_email)
+    display_team = format_display_name(raw_team)
     return f"""
 <div class="chat-message bot-message">
     <strong>🤖 AI Assistant:</strong><br>
-    Welcome {email}. {team} team!
+    Welcome {display_user}, {display_team} team!
 </div>
 """
 
