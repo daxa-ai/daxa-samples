@@ -17,6 +17,8 @@ from openai import OpenAI
 
 MAX_FETCH_CHARS = 8000
 
+log = logging.getLogger("safe_infer.tools")
+
 
 def _fetch_web_page(url: str) -> str:
     """Local trafilatura-based web fetcher used as an OpenAI tool."""
@@ -29,6 +31,8 @@ def _fetch_web_page(url: str) -> str:
             return f"Error: no extractable text at {url}"
         if len(text) > MAX_FETCH_CHARS:
             text = text[:MAX_FETCH_CHARS] + "\n…[truncated]"
+        log.info("[FETCH_WEB_PAGE] fetched %d chars from %s", len(text), url)
+        log.info("[FETCH_WEB_PAGE] content preview: %s", text[:200].replace("\n", " "))
         return text
     except Exception as e:
         return f"Error fetching {url}: {e}"
@@ -161,7 +165,6 @@ if "selected_pebblo_user" not in st.session_state:
 
 def _stream_message(client: OpenAI, model: str, message: str):
     """Let the LLM decide to call fetch_web_page, inline the result into the prompt, then stream."""
-    log = logging.getLogger("safe_infer.tools")
     log.info("[tool-loop] model=%s base_url=%s", model, getattr(client, "base_url", "?"))
 
     # Non-streaming call so the LLM can decide whether to fetch any URLs
@@ -256,7 +259,7 @@ def stream_direct_openai(message: str, model: str) -> Generator:
         http_client=http_client,
         max_retries=0,
     )
-    yield from _run_tool_loop_then_stream(client, model, message)
+    yield from _stream_message(client, model, message)
 
 
 # ---------------------------------------------------------------------------

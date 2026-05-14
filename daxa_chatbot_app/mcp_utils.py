@@ -37,6 +37,9 @@ def fetch_web_page(url: str) -> str:
         if not downloaded:
             return f"Error: could not download {url}"
         text = trafilatura.extract(downloaded) or ""
+        log = logging.getLogger("safe_infer.tools")
+        log.info("[FETCH_WEB_PAGE] fetched %d chars from %s", len(text), url)
+        log.info("[FETCH_WEB_PAGE] content preview: %s", text.replace("\n", " "))
         if not text.strip():
             return f"Error: no extractable text at {url}"
         if len(text) > MAX_FETCH_CHARS:
