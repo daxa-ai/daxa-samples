@@ -27,10 +27,13 @@ from utils import (
     FOOTER_HTML,
     MAIN_HEADER_HTML,
     MODEL,
+    PEBBLO_USER_GROUPS_MAP,
+    PEBBLO_USERS_LIST,
     RESPONSE_API_ENDPOINT,
     X_PEBBLO_USER,
     X_PEBBLO_USER_GROUPS,
     display_chat_message,
+    format_display_name,
     get_available_models,
     get_welcome_html,
     load_prompts_from_yaml,
@@ -109,19 +112,23 @@ if "mcp_responses" not in st.session_state:
     st.session_state.mcp_responses = []
 if "mcp_tools_used" not in st.session_state:
     st.session_state.mcp_tools_used = []
+if "selected_pebblo_user" not in st.session_state:
+    st.session_state.selected_pebblo_user = PEBBLO_USERS_LIST[0] if PEBBLO_USERS_LIST else (X_PEBBLO_USER or "")
 
 
 # ---------------------------------------------------------------------------
 # Safe Infer helpers
 # ---------------------------------------------------------------------------
 
-def stream_open_ai(message: str, model: str, api_key: str = ""):
+def stream_open_ai(message: str, model: str, api_key: str = "", pebblo_user: str = "", pebblo_user_groups: str = ""):
     """Yield tokens from OpenAI-compatible completions API (streaming)."""
     default_headers = {}
-    if X_PEBBLO_USER:
-        default_headers["X-PEBBLO-USER"] = X_PEBBLO_USER
-    if X_PEBBLO_USER_GROUPS:
-        default_headers["X-PEBBLO-USER-GROUPS"] = X_PEBBLO_USER_GROUPS
+    active_user = pebblo_user.strip() if pebblo_user and pebblo_user.strip() else X_PEBBLO_USER
+    if active_user:
+        default_headers["X-PEBBLO-USER"] = active_user
+    active_groups = pebblo_user_groups.strip() if pebblo_user_groups and pebblo_user_groups.strip() else X_PEBBLO_USER_GROUPS
+    if active_groups:
+        default_headers["X-PEBBLO-USER-GROUPS"] = active_groups
     default_headers = default_headers or None
 
     http_client = httpx.Client(
@@ -252,6 +259,20 @@ def run_mcp_query(user_input: str, mcp_servers: dict, pebblo_user: str, pebblo_u
 st.markdown(MAIN_HEADER_HTML, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
+# Helper: resolve groups for the currently selected Pebblo user
+# ---------------------------------------------------------------------------
+
+def _get_active_pebblo_groups() -> str:
+    """Return user-groups string for the selected user, falling back to env default."""
+    user = st.session_state.get("selected_pebblo_user", "")
+    if user and PEBBLO_USER_GROUPS_MAP:
+        mapped = PEBBLO_USER_GROUPS_MAP.get(user, "")
+        if mapped:
+            return mapped
+    return X_PEBBLO_USER_GROUPS or ""
+
+
+# ---------------------------------------------------------------------------
 # Sidebar: mode selector first, then mode-specific controls
 # ---------------------------------------------------------------------------
 
@@ -295,6 +316,17 @@ with st.sidebar:
     mode = _LABEL_TO_MODE.get(_raw_mode, "Safe Agent")
 
     st.markdown("---")
+
+    if PEBBLO_USERS_LIST and mode in ("Safe Infer", "Safe Agent"):
+        st.subheader("👤 User")
+        st.selectbox(
+            "User",
+            options=PEBBLO_USERS_LIST,
+            format_func=format_display_name,
+            key="selected_pebblo_user",
+            label_visibility="collapsed",
+        )
+        st.markdown("---")
 
     if mode == "Safe Infer":
         st.subheader("🔗 API Status")
@@ -620,7 +652,9 @@ with st.sidebar:
 # Main content area
 # ---------------------------------------------------------------------------
 
-st.markdown(get_welcome_html(), unsafe_allow_html=True)
+_welcome_user = st.session_state.get("selected_pebblo_user", "") or None
+_welcome_group = (_get_active_pebblo_groups().split(",")[0].strip()) or None
+st.markdown(get_welcome_html(user_email=_welcome_user, user_team=_welcome_group), unsafe_allow_html=True)
 
 if mode == "Safe Infer":
     for message in st.session_state.chat_history:
@@ -662,6 +696,8 @@ if mode == "Safe Infer":
                         message=user_input,
                         model=model,
                         api_key=st.session_state.api_key,
+                        pebblo_user=st.session_state.get("selected_pebblo_user", ""),
+                        pebblo_user_groups=_get_active_pebblo_groups(),
                     )
                 )
             st.session_state.chat_history.append({
@@ -785,6 +821,8 @@ elif mode == "Safe Agent":
         mcp_send = st.button("🚀 Send", type="primary", key="mcp_send_btn")
 
     if mcp_send and mcp_query.strip():
+        _active_pebblo_user = st.session_state.get("selected_pebblo_user", "") or st.session_state.get("mcp_user_input", "")
+        _active_pebblo_groups = _get_active_pebblo_groups()
         mcp_servers = build_mcp_servers(
             atlassian_url=st.session_state.get("atlassian_url", "") if SHOW_ATLASSIAN_OAUTH else "",
             atlassian_api_key=st.session_state.get("atlassian_api_key", "") if SHOW_ATLASSIAN_OAUTH else "",
@@ -792,8 +830,8 @@ elif mode == "Safe Agent":
             atlassian_docker_api_key=st.session_state.get("atlassian_docker_api_key", "") if SHOW_ATLASSIAN_DOCKER else "",
             billing_url=st.session_state.get("billing_url", "") if SHOW_CUSTOMER_BILLING else "",
             billing_api_key=st.session_state.get("billing_api_key", "") if SHOW_CUSTOMER_BILLING else "",
-            pebblo_user=st.session_state.get("mcp_user_input", ""),
-            pebblo_user_groups=st.session_state.get("mcp_groups_input", ""),
+            pebblo_user=_active_pebblo_user,
+            pebblo_user_groups=_active_pebblo_groups,
             atlassian_token=get_oauth_token("atlassian") if SHOW_ATLASSIAN_OAUTH else None,
         )
         if not mcp_servers:
@@ -804,8 +842,8 @@ elif mode == "Safe Agent":
             run_mcp_query(
                 user_input=mcp_query,
                 mcp_servers=mcp_servers,
-                pebblo_user=st.session_state.get("mcp_user_input", ""),
-                pebblo_user_groups=st.session_state.get("mcp_groups_input", ""),
+                pebblo_user=_active_pebblo_user,
+                pebblo_user_groups=_active_pebblo_groups,
             )
 
 # Footer
