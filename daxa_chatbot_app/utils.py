@@ -187,28 +187,16 @@ def display_chat_message(
     import streamlit as st
 
     if role == "user":
-        st.markdown(
-            f"""
-        <div class="chat-message user-message">
-            <strong>👤 You:</strong><br>
-            {content}
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
+        with st.chat_message("user"):
+            st.markdown(content)
     else:
-        st.markdown(
-            f"""
-        <div class="chat-message bot-message">
-            <strong>🤖 AI Assistant:</strong><br>
-            {content}
-            <div class="model-info">
-                Model: {model} | {timestamp}
-            </div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
+        with st.chat_message("assistant"):
+            st.markdown(content)
+            if model or timestamp:
+                st.markdown(
+                    f'<div class="model-info">Model: {model} | {timestamp}</div>',
+                    unsafe_allow_html=True,
+                )
 
 
 def format_display_name(value: str) -> str:
