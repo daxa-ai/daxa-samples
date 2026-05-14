@@ -322,72 +322,107 @@ if "selected_pebblo_user" not in st.session_state:
 _FILE_TOOL_NAMES = {"list_directory", "read_file", "file_search"}
 
 
-def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups: str = ""):
-    """Let the LLM decide which tools to call, execute them, inline results, then stream.
+def _execute_tool_call(tc, pebblo_user_groups: str) -> str:
+    """Execute a single tool call and return the result string."""
+    try:
+        args = json.loads(tc.function.arguments or "{}")
+    except json.JSONDecodeError:
+        args = {}
+    name = tc.function.name
+    log.info("[tool-loop] invoking %s args=%s", name, args)
 
-    File search tools are always offered; read_file enforces per-file group
-    permissions defined in DOC_ACCESS_ALLOWED at execution time.
+    if name == "fetch_web_page":
+        result = _fetch_web_page(args.get("url", ""))
+    elif name == "read_file":
+        file_path = args.get("file_path", "")
+        if not _is_file_readable(file_path, pebblo_user_groups):
+            log.warning("[file-perms] access denied: user_groups=%s file=%s",
+                        pebblo_user_groups, file_path)
+            result = f"Access denied: your group does not have permission to read '{file_path}'."
+        else:
+            result = _run_file_tool(name, args)
+    elif name in _FILE_TOOL_NAMES:
+        result = _run_file_tool(name, args)
+    else:
+        result = f"Unknown tool: {name}"
+
+    log.info("[tool-loop] %s returned %d chars", name, len(result))
+    return result
+
+
+def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups: str = ""):
+    """Multi-turn tool loop: chain all tool calls across rounds, collect every result
+    into result_blocks, then inject them all into an augmented prompt and stream the
+    final answer.
+
+    Allows chained calls like file_search → read_file in a single user turn.
+    read_file enforces per-file group permissions from DOC_ACCESS_ALLOWED.
     """
     tools = [_FETCH_TOOL_SCHEMA] + _FILE_TOOL_SCHEMAS
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You have access to local file search tools: list_directory, file_search, and read_file. "
+                "When the user asks about any document, file, topic, or information that may be stored locally, "
+                "always use file_search or list_directory first to find relevant files, "
+                "then use read_file to read their content before answering. "
+                "Do not answer from memory when local files may contain the relevant information."
+            ),
+        },
+        {"role": "user", "content": message},
+    ]
     log.info("[tool-loop] model=%s base_url=%s tools=%s",
              model, getattr(client, "base_url", "?"),
              [t["function"]["name"] for t in tools])
 
-    # Non-streaming call so the LLM can decide whether to invoke any tools
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": message}],
-        tools=tools,
-    )
-    msg = resp.choices[0].message
-    tool_calls = getattr(msg, "tool_calls", None) or []
-    log.info("[tool-loop] finish_reason=%s tool_calls=%s",
-             resp.choices[0].finish_reason,
-             [tc.function.name for tc in tool_calls])
-
-    if not tool_calls:
-        # No tools needed — stream the answer the LLM already produced
-        log.info("[tool-loop] no tool calls → streaming direct answer")
-        yield msg.content or ""
-        return
-
-    # Execute each tool call and collect results
     result_blocks = []
-    for tc in tool_calls:
-        try:
-            args = json.loads(tc.function.arguments or "{}")
-        except json.JSONDecodeError:
-            args = {}
-        name = tc.function.name
-        log.info("[tool-loop] invoking %s args=%s", name, args)
+    _MAX_ROUNDS = 5
 
-        if name == "fetch_web_page":
-            result = _fetch_web_page(args.get("url", ""))
-            label = args.get("url", "unknown URL")
-        elif name == "read_file":
-            file_path = args.get("file_path", "")
-            if not _is_file_readable(file_path, pebblo_user_groups):
-                log.warning("[file-perms] access denied: user_groups=%s file=%s",
-                            pebblo_user_groups, file_path)
-                result = f"Access denied: your group does not have permission to read '{file_path}'."
-            else:
-                result = _run_file_tool(name, args)
-            label = f"read_file({file_path})"
-        elif name in _FILE_TOOL_NAMES:
-            # list_directory and file_search — always permitted
-            result = _run_file_tool(name, args)
-            label = f"{name}({args})"
-        else:
-            result = f"Unknown tool: {name}"
-            label = name
+    for round_num in range(_MAX_ROUNDS):
+        resp = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=tools,
+        )
+        msg = resp.choices[0].message
+        tool_calls = getattr(msg, "tool_calls", None) or []
+        log.info("[tool-loop] round=%d finish_reason=%s tool_calls=%s",
+                 round_num, resp.choices[0].finish_reason,
+                 [tc.function.name for tc in tool_calls])
 
-        log.info("[tool-loop] %s returned %d chars", name, len(result))
-        result_blocks.append(f"--- Tool result: {label} ---\n{result}\n--- End of result ---")
+        if not tool_calls:
+            if round_num == 0:
+                log.info("[tool-loop] no tool calls → direct answer")
+                yield msg.content or ""
+                return
+            break
 
-    # Inline all tool results into the user prompt and stream the final answer
+        # Append assistant turn so the next round has full context
+        messages.append(msg)
+
+        for tc in tool_calls:
+            result = _execute_tool_call(tc, pebblo_user_groups)
+            # Keep conversation history for chaining
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result,
+            })
+            # Also accumulate for the final inline injection
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            label = args.get("url") or args.get("file_path") or args.get("pattern") or tc.function.name
+            result_blocks.append(
+                f"--- Tool result: {tc.function.name}({label}) ---\n{result}\n--- End of result ---"
+            )
+
+    # Inject all collected tool results into the augmented prompt and stream
     injected = "\n\n".join(result_blocks)
     augmented = f"{injected}\n\nUsing the above content, answer the following:\n{message}"
-    log.info("[tool-loop] augmented prompt length: %d chars", len(augmented))
+    log.info("[tool-loop] augmented prompt length: %d chars, blocks: %d", len(augmented), len(result_blocks))
 
     with client.chat.completions.create(
         model=model,
