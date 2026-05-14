@@ -9,4 +9,3 @@ pydantic-settings==2.10.1
 pydantic_core==2.33.2
 openai==1.97.1
 python-dotenv==1.0.0
-trafilatura==1.12.2

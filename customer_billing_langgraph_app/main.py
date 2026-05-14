@@ -9,8 +9,6 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_core.tools import tool
-import trafilatura
 
 _env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(_env_path, override=True)
@@ -46,27 +44,6 @@ def _mcp_gateway_headers() -> Dict[str, str]:
 
 chat_model = ChatOpenAI(model="gpt-4o-mini")
 
-MAX_FETCH_CHARS = 8000
-
-
-@tool
-def fetch_web_page(url: str) -> str:
-    """Fetch a web page by URL and return its main text content.
-    Use this when the user asks about a specific URL or wants the
-    contents of a web page summarized, explained, or quoted."""
-    try:
-        downloaded = trafilatura.fetch_url(url)
-        if not downloaded:
-            return f"Error: could not download {url}"
-        text = trafilatura.extract(downloaded) or ""
-        if not text.strip():
-            return f"Error: no extractable text at {url}"
-        if len(text) > MAX_FETCH_CHARS:
-            text = text[:MAX_FETCH_CHARS] + "\n…[truncated]"
-        return text
-    except Exception as e:
-        return f"Error fetching {url}: {e}"
-
 
 async def setup_langgraph():
     """Build and compile LangGraph with Customer Billing MCP tools."""
@@ -78,8 +55,7 @@ async def setup_langgraph():
 
     mcp_client = MultiServerMCPClient({"customer-billing": server_config})
     tools = await mcp_client.get_tools()
-    tools.append(fetch_web_page)
-    tools_by_name = {t.name: t for t in tools}
+    tools_by_name = {tool.name: tool for tool in tools}
     model_with_tools = chat_model.bind_tools(tools)
 
     async def async_tool_node(state: MessagesState):
