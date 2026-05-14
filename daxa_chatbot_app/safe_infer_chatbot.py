@@ -143,6 +143,19 @@ def _list_docs() -> list:
     ]
 
 
+def _doc_title(fpath: str) -> str:
+    """Return the first non-empty heading or line from a file as its title hint."""
+    try:
+        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip().lstrip("#").strip()
+                if line:
+                    return line
+    except Exception:
+        pass
+    return ""
+
+
 def _render_file_link(fname: str, fpath: str) -> None:
     """Render a sidebar link that opens the file in a new browser tab.
 
@@ -390,7 +403,7 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
         You are a helpful AI assistant.
 
         Available local files:
-        {', '.join(available_files) if available_files else 'No local files are currently available.'}
+        {chr(10).join(f'- {fname}: "{_doc_title(fpath)}"' for fname, fpath in _list_docs()) if available_files else 'No local files are currently available.'}
 
         General behavior rules:
 
