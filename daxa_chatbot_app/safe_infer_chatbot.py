@@ -597,18 +597,6 @@ with st.sidebar:
         st.markdown("---")
 
     if mode == "Safe Infer":
-        # Documents section — list files from docs/, clickable links open in new tab
-        _docs = _list_docs()
-        if _docs:
-            st.subheader("📁 Documents")
-            _current_groups = _get_active_pebblo_groups()
-            for _fname, _fpath in _docs:
-                if _is_file_readable(_fname, _current_groups):
-                    _render_file_link(_fname, _fpath)
-                else:
-                    st.caption(f"🔒 {_fname}")
-            st.markdown("---")
-
         st.subheader("🔗 API Status")
         if st.button("Test API Connection"):
             with st.spinner("Testing connection..."):
@@ -691,6 +679,18 @@ with st.sidebar:
                 key=f"sidebar_prompt_{selected_lang}_{i}",
                 label_visibility="collapsed",
             )
+
+        # Documents section — list files from static/, clickable links open in new tab
+        _docs = _list_docs()
+        if _docs:
+            st.subheader("📁 Documents")
+            _current_groups = _get_active_pebblo_groups()
+            for _fname, _fpath in _docs:
+                if _is_file_readable(_fname, _current_groups):
+                    _render_file_link(_fname, _fpath)
+                else:
+                    st.caption(f"🔒 {_fname}")
+            st.markdown("---")
 
         if st.session_state.chat_history:
             chat_data = {
