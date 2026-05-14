@@ -379,12 +379,37 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
     has_url = "http://" in message or "https://" in message
     tools = _FILE_TOOL_SCHEMAS + ([_FETCH_TOOL_SCHEMA] if has_url else [])
     available_files = [fname for fname, _ in _list_docs()]
-    system_content = (
-        f"Available local files: {', '.join(available_files)}. "
-        "Use read_file to read them directly by name."
-        if available_files
-        else "No local files are currently available."
-    )
+    # system_content = (
+    #     f"Available local files: {', '.join(available_files)}. "
+    #     "If the user's question relates to any of these files, use read_file to read the relevant file first. "
+    #     "If the answer is not found in the local files or the question is unrelated to them, answer directly from your own knowledge."
+    #     if available_files
+    #     else "No local files are currently available. Answer directly from your own knowledge."
+    # )
+    system_content = f"""
+        You are a helpful AI assistant.
+
+        Available local files:
+        {', '.join(available_files) if available_files else 'No local files are currently available.'}
+
+        General behavior rules:
+
+        1. First determine whether the user's request requires using any available tool.
+        2. Use tools ONLY when they are clearly relevant and necessary.
+        3. If no available tool is useful for answering the request, answer directly using your own knowledge.
+        4. Do NOT force tool usage.
+        5. If local files are available and the user asks about file contents, summaries, searches, analysis, extraction, or comparisons, use the read_file tool directly with the exact filename.
+        6. If the request can be answered without reading files, do not use read_file.
+        7. Prefer concise and efficient tool usage.
+        8. After using a tool, provide a natural language answer based on the tool output.
+        9. If a requested action cannot be completed with available tools, clearly say so and provide the best possible direct response.
+
+        Important:
+        - Tool availability does NOT mean the tool must be used.
+        - Always choose the simplest correct path:
+        - Tool if needed
+        - Direct LLM response otherwise
+    """.strip()
     messages = [
         {"role": "system", "content": system_content},
         {"role": "user", "content": message},
@@ -397,25 +422,22 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
     _MAX_ROUNDS = 5
 
     for round_num in range(_MAX_ROUNDS):
-        # Round 0: force the LLM to call at least one tool (it decides which/args).
-        # Subsequent rounds: LLM decides whether to chain more tools or stop.
-        tool_choice = "required" if round_num == 0 else "auto"
-
         resp = client.chat.completions.create(
             model=model,
             messages=messages,
             tools=tools,
-            tool_choice=tool_choice,
         )
         msg = resp.choices[0].message
         tool_calls = getattr(msg, "tool_calls", None) or []
-        log.info("[tool-loop] round=%d tool_choice=%s finish_reason=%s tool_calls=%s",
-                 round_num, tool_choice, resp.choices[0].finish_reason,
+        log.info("[tool-loop] round=%d finish_reason=%s tool_calls=%s",
+                 round_num, resp.choices[0].finish_reason,
                  [tc.function.name for tc in tool_calls])
 
         if not tool_calls:
-            # Only reachable on round >= 1 (round 0 is forced).
-            # LLM decided no more tools are needed.
+            if round_num == 0:
+                log.info("[tool-loop] no tool calls → direct answer")
+                yield msg.content or ""
+                return
             break
 
         # Append assistant turn so the next round has full context
@@ -441,6 +463,13 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
                 )
             else:
                 log.info("[tool-loop] skipping empty/failed result for %s", tc.function.name)
+
+        # If we already have useful results, skip asking the LLM for more tools —
+        # go straight to the final streaming call to save an extra round-trip.
+        # Only continue the loop when results are still empty (e.g. file_search
+        # returned nothing and the LLM should try a different tool).
+        if result_blocks:
+            break
 
     # Inject all collected tool results into the augmented prompt and stream
     injected = "\n\n".join(result_blocks)
