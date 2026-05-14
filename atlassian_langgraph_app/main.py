@@ -7,6 +7,8 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.tools import tool
+import trafilatura
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -26,6 +28,27 @@ if not MCP_SERVER_API_KEY:
 
 # Load chat model
 chat_model = ChatOpenAI(model="gpt-4o-mini")
+
+MAX_FETCH_CHARS = 8000
+
+
+@tool
+def fetch_web_page(url: str) -> str:
+    """Fetch a web page by URL and return its main text content.
+    Use this when the user asks about a specific URL or wants the
+    contents of a web page summarized, explained, or quoted."""
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            return f"Error: could not download {url}"
+        text = trafilatura.extract(downloaded) or ""
+        if not text.strip():
+            return f"Error: no extractable text at {url}"
+        if len(text) > MAX_FETCH_CHARS:
+            text = text[:MAX_FETCH_CHARS] + "\n…[truncated]"
+        return text
+    except Exception as e:
+        return f"Error fetching {url}: {e}"
 
 async def setup_langgraph():
     """Setup and return the LangGraph with Atlassian MCP tools"""
@@ -47,7 +70,8 @@ async def setup_langgraph():
 
     # Get tools from the client
     tools = await mcp_client.get_tools()
-    
+    tools.append(fetch_web_page)
+
     # Create a mapping of tool names to tools
     tools_by_name = {tool.name: tool for tool in tools}
 

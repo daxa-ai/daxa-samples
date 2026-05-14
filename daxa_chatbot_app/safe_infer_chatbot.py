@@ -12,7 +12,46 @@ logging.basicConfig(
 
 import httpx
 import streamlit as st
+import trafilatura
 from openai import OpenAI
+
+MAX_FETCH_CHARS = 8000
+
+
+def _fetch_web_page(url: str) -> str:
+    """Local trafilatura-based web fetcher used as an OpenAI tool."""
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            return f"Error: could not download {url}"
+        text = trafilatura.extract(downloaded) or ""
+        if not text.strip():
+            return f"Error: no extractable text at {url}"
+        if len(text) > MAX_FETCH_CHARS:
+            text = text[:MAX_FETCH_CHARS] + "\n…[truncated]"
+        return text
+    except Exception as e:
+        return f"Error fetching {url}: {e}"
+
+
+_FETCH_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "fetch_web_page",
+        "description": (
+            "Fetch a web page by URL and return its main text content. "
+            "Use this whenever the user mentions a URL or asks you to read, "
+            "summarize, or quote a web page."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Absolute http(s) URL to fetch."}
+            },
+            "required": ["url"],
+        },
+    },
+}
 
 _attempt_counter = {"count": 0}
 
@@ -115,8 +154,68 @@ if "mcp_tools_used" not in st.session_state:
 # Safe Infer helpers
 # ---------------------------------------------------------------------------
 
+def _run_tool_loop_then_stream(client: OpenAI, model: str, message: str):
+    """Run tool-calling loop with fetch_web_page, then stream the final answer."""
+    log = logging.getLogger("safe_infer.tools")
+    log.info("[tool-loop] model=%s base_url=%s tools=[fetch_web_page]", model, getattr(client, "base_url", "?"))
+    messages = [{"role": "user", "content": message}]
+    for turn in range(5):
+        log.info("[tool-loop] turn=%d sending %d messages with tools", turn, len(messages))
+        resp = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=[_FETCH_TOOL_SCHEMA],
+        )
+        msg = resp.choices[0].message
+        tool_calls = getattr(msg, "tool_calls", None) or []
+        finish_reason = resp.choices[0].finish_reason
+        log.info("[tool-loop] turn=%d finish_reason=%s tool_calls=%s content_len=%d",
+                 turn, finish_reason,
+                 [tc.function.name for tc in tool_calls],
+                 len(msg.content or ""))
+        if not tool_calls:
+            log.info("[tool-loop] no tool calls → streaming final answer")
+            break
+        messages.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in tool_calls
+            ],
+        })
+        for tc in tool_calls:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            log.info("[tool-loop] invoking %s args=%s", tc.function.name, args)
+            if tc.function.name == "fetch_web_page":
+                result = _fetch_web_page(args.get("url", ""))
+            else:
+                result = f"Unknown tool: {tc.function.name}"
+            log.info("[tool-loop] %s returned %d chars (preview: %r)",
+                     tc.function.name, len(result), result[:120])
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result,
+            })
+
+    with client.chat.completions.create(
+        model=model,
+        messages=messages,
+        stream=True,
+    ) as stream:
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
+
 def stream_open_ai(message: str, model: str, api_key: str = ""):
-    """Yield tokens from OpenAI-compatible completions API (streaming)."""
+    """Yield tokens from OpenAI-compatible completions API (streaming), with fetch_web_page tool."""
     default_headers = {}
     if X_PEBBLO_USER:
         default_headers["X-PEBBLO-USER"] = X_PEBBLO_USER
@@ -136,15 +235,7 @@ def stream_open_ai(message: str, model: str, api_key: str = ""):
         http_client=http_client,
         max_retries=0,
     )
-    with client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": message}],
-        stream=True,
-    ) as stream:
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+    yield from _run_tool_loop_then_stream(client, model, message)
 
 
 # ---------------------------------------------------------------------------
@@ -164,15 +255,7 @@ def stream_direct_openai(message: str, model: str) -> Generator:
         http_client=http_client,
         max_retries=0,
     )
-    with client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": message}],
-        stream=True,
-    ) as stream:
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+    yield from _run_tool_loop_then_stream(client, model, message)
 
 
 # ---------------------------------------------------------------------------
@@ -760,17 +843,14 @@ elif mode == "InSecure Agent":
             atlassian_token=get_oauth_token("direct_atlassian") if SHOW_ATLASSIAN_OAUTH else None,
             billing_url=st.session_state.get("direct_billing_url", "") if SHOW_CUSTOMER_BILLING else "",
         )
-        if not direct_mcp_servers:
-            st.error("Configure at least one MCP server URL in the sidebar.")
-        else:
-            st.session_state.direct_mcp_responses = []
-            st.session_state.direct_mcp_tools_used = []
-            run_mcp_query(
-                user_input=direct_mcp_query,
-                mcp_servers=direct_mcp_servers,
-                pebblo_user="",
-                pebblo_user_groups="",
-            )
+        st.session_state.direct_mcp_responses = []
+        st.session_state.direct_mcp_tools_used = []
+        run_mcp_query(
+            user_input=direct_mcp_query,
+            mcp_servers=direct_mcp_servers,
+            pebblo_user="",
+            pebblo_user_groups="",
+        )
 
 elif mode == "Safe Agent":
     mcp_query = st.text_area(
@@ -796,17 +876,14 @@ elif mode == "Safe Agent":
             pebblo_user_groups=st.session_state.get("mcp_groups_input", ""),
             atlassian_token=get_oauth_token("atlassian") if SHOW_ATLASSIAN_OAUTH else None,
         )
-        if not mcp_servers:
-            st.error("Configure at least one MCP server URL in the sidebar.")
-        else:
-            st.session_state.mcp_responses = []
-            st.session_state.mcp_tools_used = []
-            run_mcp_query(
-                user_input=mcp_query,
-                mcp_servers=mcp_servers,
-                pebblo_user=st.session_state.get("mcp_user_input", ""),
-                pebblo_user_groups=st.session_state.get("mcp_groups_input", ""),
-            )
+        st.session_state.mcp_responses = []
+        st.session_state.mcp_tools_used = []
+        run_mcp_query(
+            user_input=mcp_query,
+            mcp_servers=mcp_servers,
+            pebblo_user=st.session_state.get("mcp_user_input", ""),
+            pebblo_user_groups=st.session_state.get("mcp_groups_input", ""),
+        )
 
 # Footer
 st.markdown("---")
