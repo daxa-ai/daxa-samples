@@ -46,26 +46,6 @@ _FILE_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
-            "name": "list_directory",
-            "description": (
-                "List files and directories at a path inside the repository. "
-                "Use this to explore available files before reading them."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "dir_path": {
-                        "type": "string",
-                        "description": "Relative sub-directory to list. Omit or use '.' for root.",
-                    }
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "read_file",
             "description": "Read the full text content of a file in the repository.",
             "parameters": {
@@ -94,6 +74,26 @@ _FILE_TOOL_SCHEMAS = [
                     }
                 },
                 "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_directory",
+            "description": (
+                "List files and directories at a path inside the repository. "
+                "Use this to explore available files before reading them."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dir_path": {
+                        "type": "string",
+                        "description": "Relative sub-directory to list. Omit or use '.' for root.",
+                    }
+                },
+                "required": [],
             },
         },
     },
@@ -322,6 +322,23 @@ if "selected_pebblo_user" not in st.session_state:
 _FILE_TOOL_NAMES = {"list_directory", "read_file", "file_search"}
 
 
+_FAILED_RESULT_PREFIXES = (
+    "No files found",
+    "Error",
+    "Access denied",
+    "not available",
+    "Unknown tool",
+)
+
+
+def _is_useful_tool_result(result: str) -> bool:
+    """Return False for empty results or known failure messages."""
+    stripped = result.strip()
+    if not stripped:
+        return False
+    return not any(stripped.startswith(p) for p in _FAILED_RESULT_PREFIXES)
+
+
 def _execute_tool_call(tc, pebblo_user_groups: str) -> str:
     """Execute a single tool call and return the result string."""
     try:
@@ -358,18 +375,18 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
     Allows chained calls like file_search → read_file in a single user turn.
     read_file enforces per-file group permissions from DOC_ACCESS_ALLOWED.
     """
-    tools = [_FETCH_TOOL_SCHEMA] + _FILE_TOOL_SCHEMAS
+    # Only expose fetch_web_page when the message contains a URL
+    has_url = "http://" in message or "https://" in message
+    tools = _FILE_TOOL_SCHEMAS + ([_FETCH_TOOL_SCHEMA] if has_url else [])
+    available_files = [fname for fname, _ in _list_docs()]
+    system_content = (
+        f"Available local files: {', '.join(available_files)}. "
+        "Use read_file to read them directly by name."
+        if available_files
+        else "No local files are currently available."
+    )
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "You have access to local file search tools: list_directory, file_search, and read_file. "
-                "When the user asks about any document, file, topic, or information that may be stored locally, "
-                "always use file_search or list_directory first to find relevant files, "
-                "then use read_file to read their content before answering. "
-                "Do not answer from memory when local files may contain the relevant information."
-            ),
-        },
+        {"role": "system", "content": system_content},
         {"role": "user", "content": message},
     ]
     log.info("[tool-loop] model=%s base_url=%s tools=%s",
@@ -380,22 +397,25 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
     _MAX_ROUNDS = 5
 
     for round_num in range(_MAX_ROUNDS):
+        # Round 0: force the LLM to call at least one tool (it decides which/args).
+        # Subsequent rounds: LLM decides whether to chain more tools or stop.
+        tool_choice = "required" if round_num == 0 else "auto"
+
         resp = client.chat.completions.create(
             model=model,
             messages=messages,
             tools=tools,
+            tool_choice=tool_choice,
         )
         msg = resp.choices[0].message
         tool_calls = getattr(msg, "tool_calls", None) or []
-        log.info("[tool-loop] round=%d finish_reason=%s tool_calls=%s",
-                 round_num, resp.choices[0].finish_reason,
+        log.info("[tool-loop] round=%d tool_choice=%s finish_reason=%s tool_calls=%s",
+                 round_num, tool_choice, resp.choices[0].finish_reason,
                  [tc.function.name for tc in tool_calls])
 
         if not tool_calls:
-            if round_num == 0:
-                log.info("[tool-loop] no tool calls → direct answer")
-                yield msg.content or ""
-                return
+            # Only reachable on round >= 1 (round 0 is forced).
+            # LLM decided no more tools are needed.
             break
 
         # Append assistant turn so the next round has full context
@@ -403,21 +423,24 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
 
         for tc in tool_calls:
             result = _execute_tool_call(tc, pebblo_user_groups)
-            # Keep conversation history for chaining
+            # Keep conversation history for chaining regardless of outcome
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
                 "content": result,
             })
-            # Also accumulate for the final inline injection
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            label = args.get("url") or args.get("file_path") or args.get("pattern") or tc.function.name
-            result_blocks.append(
-                f"--- Tool result: {tc.function.name}({label}) ---\n{result}\n--- End of result ---"
-            )
+            # Only accumulate meaningful results in result_blocks (skip failures/empty)
+            if _is_useful_tool_result(result):
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                label = args.get("url") or args.get("file_path") or args.get("pattern") or tc.function.name
+                result_blocks.append(
+                    f"--- Tool result: {tc.function.name}({label}) ---\n{result}\n--- End of result ---"
+                )
+            else:
+                log.info("[tool-loop] skipping empty/failed result for %s", tc.function.name)
 
     # Inject all collected tool results into the augmented prompt and stream
     injected = "\n\n".join(result_blocks)
