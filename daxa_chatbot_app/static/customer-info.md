@@ -32,7 +32,6 @@
 ## Government IDs
 
 - SSN: 472-18-9034
-- Driver License: TX-A8293417
 - Passport Number: 592014881
 
 ## Employment Information
