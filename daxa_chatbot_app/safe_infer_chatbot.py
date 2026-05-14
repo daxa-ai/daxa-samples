@@ -12,7 +12,50 @@ logging.basicConfig(
 
 import httpx
 import streamlit as st
+import trafilatura
 from openai import OpenAI
+
+MAX_FETCH_CHARS = 8000
+
+log = logging.getLogger("safe_infer.tools")
+
+
+def _fetch_web_page(url: str) -> str:
+    """Local trafilatura-based web fetcher used as an OpenAI tool."""
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            return f"Error: could not download {url}"
+        text = trafilatura.extract(downloaded) or ""
+        if not text.strip():
+            return f"Error: no extractable text at {url}"
+        if len(text) > MAX_FETCH_CHARS:
+            text = text[:MAX_FETCH_CHARS] + "\n…[truncated]"
+        log.info("[FETCH_WEB_PAGE] fetched %d chars from %s", len(text), url)
+        log.info("[FETCH_WEB_PAGE] content preview: %s", text[:200].replace("\n", " "))
+        return text
+    except Exception as e:
+        return f"Error fetching {url}: {e}"
+
+
+_FETCH_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "fetch_web_page",
+        "description": (
+            "Fetch a web page by URL and return its main text content. "
+            "Use this whenever the user mentions a URL or asks you to read, "
+            "summarize, or quote a web page."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Absolute http(s) URL to fetch."}
+            },
+            "required": ["url"],
+        },
+    },
+}
 
 _attempt_counter = {"count": 0}
 
@@ -120,8 +163,61 @@ if "selected_pebblo_user" not in st.session_state:
 # Safe Infer helpers
 # ---------------------------------------------------------------------------
 
+def _stream_message(client: OpenAI, model: str, message: str):
+    """Let the LLM decide to call fetch_web_page, inline the result into the prompt, then stream."""
+    log.info("[tool-loop] model=%s base_url=%s", model, getattr(client, "base_url", "?"))
+
+    # Non-streaming call so the LLM can decide whether to fetch any URLs
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": message}],
+        tools=[_FETCH_TOOL_SCHEMA],
+    )
+    msg = resp.choices[0].message
+    tool_calls = getattr(msg, "tool_calls", None) or []
+    log.info("[tool-loop] finish_reason=%s tool_calls=%s",
+             resp.choices[0].finish_reason,
+             [tc.function.name for tc in tool_calls])
+
+    if not tool_calls:
+        # No fetch needed — stream the answer the LLM already produced
+        log.info("[tool-loop] no tool calls → streaming direct answer")
+        yield msg.content or ""
+        return
+
+    # Execute each tool call and collect fetched content
+    fetched_blocks = []
+    for tc in tool_calls:
+        try:
+            args = json.loads(tc.function.arguments or "{}")
+        except json.JSONDecodeError:
+            args = {}
+        log.info("[tool-loop] invoking %s args=%s", tc.function.name, args)
+        if tc.function.name == "fetch_web_page":
+            result = _fetch_web_page(args.get("url", ""))
+        else:
+            result = f"Unknown tool: {tc.function.name}"
+        log.info("[tool-loop] %s returned %d chars", tc.function.name, len(result))
+        fetched_blocks.append(f"--- Content from {args.get('url', 'unknown')} ---\n{result}\n--- End of content ---")
+
+    # Inline the fetched content directly into the user prompt and stream
+    injected = "\n\n".join(fetched_blocks)
+    augmented = f"{injected}\n\nUsing the above content, answer the following:\n{message}"
+    log.info("[tool-loop] augmented prompt length: %d chars", len(augmented))
+
+    with client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": augmented}],
+        stream=True,
+    ) as stream:
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
+
 def stream_open_ai(message: str, model: str, api_key: str = "", pebblo_user: str = "", pebblo_user_groups: str = ""):
-    """Yield tokens from OpenAI-compatible completions API (streaming)."""
+    """Yield tokens from OpenAI-compatible completions API (streaming), with fetch_web_page tool."""
     default_headers = {}
     active_user = pebblo_user.strip() if pebblo_user and pebblo_user.strip() else X_PEBBLO_USER
     if active_user:
@@ -143,15 +239,7 @@ def stream_open_ai(message: str, model: str, api_key: str = "", pebblo_user: str
         http_client=http_client,
         max_retries=0,
     )
-    with client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": message}],
-        stream=True,
-    ) as stream:
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+    yield from _stream_message(client, model, message)
 
 
 # ---------------------------------------------------------------------------
@@ -171,15 +259,7 @@ def stream_direct_openai(message: str, model: str) -> Generator:
         http_client=http_client,
         max_retries=0,
     )
-    with client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": message}],
-        stream=True,
-    ) as stream:
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+    yield from _stream_message(client, model, message)
 
 
 # ---------------------------------------------------------------------------
@@ -796,17 +876,14 @@ elif mode == "InSecure Agent":
             atlassian_token=get_oauth_token("direct_atlassian") if SHOW_ATLASSIAN_OAUTH else None,
             billing_url=st.session_state.get("direct_billing_url", "") if SHOW_CUSTOMER_BILLING else "",
         )
-        if not direct_mcp_servers:
-            st.error("Configure at least one MCP server URL in the sidebar.")
-        else:
-            st.session_state.direct_mcp_responses = []
-            st.session_state.direct_mcp_tools_used = []
-            run_mcp_query(
-                user_input=direct_mcp_query,
-                mcp_servers=direct_mcp_servers,
-                pebblo_user="",
-                pebblo_user_groups="",
-            )
+        st.session_state.direct_mcp_responses = []
+        st.session_state.direct_mcp_tools_used = []
+        run_mcp_query(
+            user_input=direct_mcp_query,
+            mcp_servers=direct_mcp_servers,
+            pebblo_user="",
+            pebblo_user_groups="",
+        )
 
 elif mode == "Safe Agent":
     mcp_query = st.text_area(
@@ -834,17 +911,14 @@ elif mode == "Safe Agent":
             pebblo_user_groups=_active_pebblo_groups,
             atlassian_token=get_oauth_token("atlassian") if SHOW_ATLASSIAN_OAUTH else None,
         )
-        if not mcp_servers:
-            st.error("Configure at least one MCP server URL in the sidebar.")
-        else:
-            st.session_state.mcp_responses = []
-            st.session_state.mcp_tools_used = []
-            run_mcp_query(
-                user_input=mcp_query,
-                mcp_servers=mcp_servers,
-                pebblo_user=_active_pebblo_user,
-                pebblo_user_groups=_active_pebblo_groups,
-            )
+        st.session_state.mcp_responses = []
+        st.session_state.mcp_tools_used = []
+        run_mcp_query(
+            user_input=mcp_query,
+            mcp_servers=mcp_servers,
+            pebblo_user=_active_pebblo_user,
+            pebblo_user_groups=_active_pebblo_groups,
+        )
 
 # Footer
 st.markdown("---")
