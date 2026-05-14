@@ -911,28 +911,14 @@ elif mode == "Safe Agent":
             pebblo_user_groups=_active_pebblo_groups,
             atlassian_token=get_oauth_token("atlassian") if SHOW_ATLASSIAN_OAUTH else None,
         )
-<<<<<<< HEAD
-        if not mcp_servers:
-            st.error("Configure at least one MCP server URL in the sidebar.")
-        else:
-            st.session_state.mcp_responses = []
-            st.session_state.mcp_tools_used = []
-            run_mcp_query(
-                user_input=mcp_query,
-                mcp_servers=mcp_servers,
-                pebblo_user=_active_pebblo_user,
-                pebblo_user_groups=_active_pebblo_groups,
-            )
-=======
         st.session_state.mcp_responses = []
         st.session_state.mcp_tools_used = []
         run_mcp_query(
             user_input=mcp_query,
             mcp_servers=mcp_servers,
-            pebblo_user=st.session_state.get("mcp_user_input", ""),
-            pebblo_user_groups=st.session_state.get("mcp_groups_input", ""),
+            pebblo_user=_active_pebblo_user,
+            pebblo_user_groups=_active_pebblo_groups,
         )
->>>>>>> 295f5fc (Add trafilatura fetch_web_page tool to all LangGraph and chatbot apps)
 
 # Footer
 st.markdown("---")
