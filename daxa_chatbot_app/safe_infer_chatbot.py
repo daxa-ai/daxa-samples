@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import json
 import logging
@@ -13,11 +14,191 @@ logging.basicConfig(
 import httpx
 import streamlit as st
 import trafilatura
+from langchain_community.agent_toolkits import FileManagementToolkit
 from openai import OpenAI
 
 MAX_FETCH_CHARS = 8000
+MAX_FILE_CHARS = 8000
 
 log = logging.getLogger("safe_infer.tools")
+
+# ---------------------------------------------------------------------------
+# File Search configuration (read from env at import time)
+# ---------------------------------------------------------------------------
+
+_APP_DIR = os.path.dirname(__file__)
+
+_raw_root = os.getenv("FILE_SEARCH_ROOT_DIR", "").strip() or "static"
+FILE_SEARCH_ROOT_DIR = _raw_root if os.path.isabs(_raw_root) else os.path.join(_APP_DIR, _raw_root)
+
+# DOC_ACCESS_ALLOWED: Python dict literal mapping filename → list of allowed groups.
+# Files not present as keys are open to all users.
+_raw_access = os.getenv("DOC_ACCESS_ALLOWED", "").strip()
+try:
+    _DOC_ACCESS_ALLOWED: dict = ast.literal_eval(_raw_access) if _raw_access else {}
+    if not isinstance(_DOC_ACCESS_ALLOWED, dict):
+        _DOC_ACCESS_ALLOWED = {}
+except Exception as _e:
+    log.warning("[file-perms] could not parse DOC_ACCESS_ALLOWED: %s", _e)
+    _DOC_ACCESS_ALLOWED = {}
+
+_FILE_TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read the full text content of a file in the repository.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Relative path to the file to read.",
+                    }
+                },
+                "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "file_search",
+            "description": "Search for files matching a glob pattern (e.g. '*.py', '**/*.txt') in the repository.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob pattern to match file names against.",
+                    }
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_directory",
+            "description": (
+                "List files and directories at a path inside the repository. "
+                "Use this to explore available files before reading them."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dir_path": {
+                        "type": "string",
+                        "description": "Relative sub-directory to list. Omit or use '.' for root.",
+                    }
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
+_lc_file_tools_cache: dict = {}
+
+
+def _get_lc_file_tools() -> dict:
+    """Lazily build and cache the read-only LangChain file management tools."""
+    global _lc_file_tools_cache
+    if not _lc_file_tools_cache:
+        toolkit = FileManagementToolkit(
+            root_dir=FILE_SEARCH_ROOT_DIR,
+            selected_tools=["read_file", "list_directory", "file_search"],
+        )
+        _lc_file_tools_cache = {t.name: t for t in toolkit.get_tools()}
+        log.info("[file-tools] initialized with root_dir=%s tools=%s",
+                 FILE_SEARCH_ROOT_DIR, list(_lc_file_tools_cache))
+    return _lc_file_tools_cache
+
+
+def _is_file_readable(file_path: str, pebblo_user_groups: str) -> bool:
+    """Return True if the user may read file_path.
+
+    Checks against DOC_ACCESS_ALLOWED (filename → list of allowed groups).
+    Files not present as keys are open to all users.
+    """
+    if not _DOC_ACCESS_ALLOWED:
+        return True
+    fname = os.path.basename(file_path.strip())
+    if fname not in _DOC_ACCESS_ALLOWED:
+        return True  # not restricted → open to all
+    allowed = set(_DOC_ACCESS_ALLOWED[fname])
+    user_groups = {g.strip() for g in (pebblo_user_groups or "").split(",") if g.strip()}
+    return bool(user_groups & allowed)
+
+
+def _list_docs() -> list:
+    """Return [(filename, full_path), ...] for all non-hidden files in FILE_SEARCH_ROOT_DIR."""
+    if not os.path.isdir(FILE_SEARCH_ROOT_DIR):
+        return []
+    return [
+        (fname, os.path.join(FILE_SEARCH_ROOT_DIR, fname))
+        for fname in sorted(os.listdir(FILE_SEARCH_ROOT_DIR))
+        if not fname.startswith(".") and os.path.isfile(os.path.join(FILE_SEARCH_ROOT_DIR, fname))
+    ]
+
+
+def _doc_title(fpath: str) -> str:
+    """Return the first non-empty heading or line from a file as its title hint."""
+    try:
+        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip().lstrip("#").strip()
+                if line:
+                    return line
+    except Exception:
+        pass
+    return ""
+
+
+def _render_citations(cited_files: list) -> str:
+    """Return an HTML string with clickable source links for the given filenames."""
+    links = " &nbsp;|&nbsp; ".join(
+        f'<a href="/app/static/{fname}" target="_blank" style="text-decoration:none;">📄 {fname}</a>'
+        for fname in cited_files
+    )
+    return (
+        f"<div style='margin-top:8px;font-size:0.82rem;color:#666;'>"
+        f"<b>Sources:</b> {links}</div>"
+    )
+
+
+def _render_file_link(fname: str, fpath: str) -> None:
+    """Render a sidebar link that opens the file in a new browser tab.
+
+    Relies on Streamlit's static file serving (enableStaticServing = true).
+    Files in FILE_SEARCH_ROOT_DIR (default: static/) are served at /app/static/<rel_path>.
+    """
+    rel = os.path.relpath(fpath, FILE_SEARCH_ROOT_DIR).replace(os.sep, "/")
+    url = f"/app/static/{rel}"
+    st.markdown(
+        f'<a href="{url}" target="_blank" style="font-size:0.85rem;text-decoration:none;">📄 {fname}</a>',
+        unsafe_allow_html=True,
+    )
+
+
+def _run_file_tool(tool_name: str, args: dict) -> str:
+    """Execute a LangChain file tool and return its result (truncated if needed)."""
+    try:
+        tools = _get_lc_file_tools()
+        tool = tools.get(tool_name)
+        if not tool:
+            return f"File tool '{tool_name}' is not available."
+        result = tool.run(args)
+        if not isinstance(result, str):
+            result = str(result)
+        if len(result) > MAX_FILE_CHARS:
+            result = result[:MAX_FILE_CHARS] + "\n…[truncated]"
+        log.info("[file-tools] %s returned %d chars", tool_name, len(result))
+        return result
+    except Exception as exc:
+        log.warning("[file-tools] %s error: %s", tool_name, exc)
+        return f"Error running '{tool_name}': {exc}"
 
 
 def _fetch_web_page(url: str) -> str:
@@ -163,47 +344,174 @@ if "selected_pebblo_user" not in st.session_state:
 # Safe Infer helpers
 # ---------------------------------------------------------------------------
 
-def _stream_message(client: OpenAI, model: str, message: str):
-    """Let the LLM decide to call fetch_web_page, inline the result into the prompt, then stream."""
-    log.info("[tool-loop] model=%s base_url=%s", model, getattr(client, "base_url", "?"))
+_FILE_TOOL_NAMES = {"list_directory", "read_file", "file_search"}
 
-    # Non-streaming call so the LLM can decide whether to fetch any URLs
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": message}],
-        tools=[_FETCH_TOOL_SCHEMA],
-    )
-    msg = resp.choices[0].message
-    tool_calls = getattr(msg, "tool_calls", None) or []
-    log.info("[tool-loop] finish_reason=%s tool_calls=%s",
-             resp.choices[0].finish_reason,
-             [tc.function.name for tc in tool_calls])
 
-    if not tool_calls:
-        # No fetch needed — stream the answer the LLM already produced
-        log.info("[tool-loop] no tool calls → streaming direct answer")
-        yield msg.content or ""
-        return
+_FAILED_RESULT_PREFIXES = (
+    "No files found",
+    "Error",
+    "Access denied",
+    "not available",
+    "Unknown tool",
+)
 
-    # Execute each tool call and collect fetched content
-    fetched_blocks = []
-    for tc in tool_calls:
-        try:
-            args = json.loads(tc.function.arguments or "{}")
-        except json.JSONDecodeError:
-            args = {}
-        log.info("[tool-loop] invoking %s args=%s", tc.function.name, args)
-        if tc.function.name == "fetch_web_page":
-            result = _fetch_web_page(args.get("url", ""))
+
+def _is_useful_tool_result(result: str) -> bool:
+    """Return False for empty results or known failure messages."""
+    stripped = result.strip()
+    if not stripped:
+        return False
+    return not any(stripped.startswith(p) for p in _FAILED_RESULT_PREFIXES)
+
+
+def _execute_tool_call(tc, pebblo_user_groups: str) -> str:
+    """Execute a single tool call and return the result string."""
+    try:
+        args = json.loads(tc.function.arguments or "{}")
+    except json.JSONDecodeError:
+        args = {}
+    name = tc.function.name
+    log.info("[tool-loop] invoking %s args=%s", name, args)
+
+    if name == "fetch_web_page":
+        result = _fetch_web_page(args.get("url", ""))
+    elif name == "read_file":
+        file_path = args.get("file_path", "")
+        if not _is_file_readable(file_path, pebblo_user_groups):
+            log.warning("[file-perms] access denied: user_groups=%s file=%s",
+                        pebblo_user_groups, file_path)
+            result = f"Access denied: your group does not have permission to read '{file_path}'."
         else:
-            result = f"Unknown tool: {tc.function.name}"
-        log.info("[tool-loop] %s returned %d chars", tc.function.name, len(result))
-        fetched_blocks.append(f"--- Content from {args.get('url', 'unknown')} ---\n{result}\n--- End of content ---")
+            result = _run_file_tool(name, args)
+    elif name in _FILE_TOOL_NAMES:
+        result = _run_file_tool(name, args)
+    else:
+        result = f"Unknown tool: {name}"
 
-    # Inline the fetched content directly into the user prompt and stream
-    injected = "\n\n".join(fetched_blocks)
+    log.info("[tool-loop] %s returned %d chars", name, len(result))
+    return result
+
+
+def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups: str = ""):
+    """Multi-turn tool loop: chain all tool calls across rounds, collect every result
+    into result_blocks, then inject them all into an augmented prompt and stream the
+    final answer.
+
+    Allows chained calls like file_search → read_file in a single user turn.
+    read_file enforces per-file group permissions from DOC_ACCESS_ALLOWED.
+    """
+    # Only expose fetch_web_page when the message contains a URL
+    has_url = "http://" in message or "https://" in message
+    tools = _FILE_TOOL_SCHEMAS + ([_FETCH_TOOL_SCHEMA] if has_url else [])
+    available_files = [fname for fname, _ in _list_docs()]
+    # system_content = (
+    #     f"Available local files: {', '.join(available_files)}. "
+    #     "If the user's question relates to any of these files, use read_file to read the relevant file first. "
+    #     "If the answer is not found in the local files or the question is unrelated to them, answer directly from your own knowledge."
+    #     if available_files
+    #     else "No local files are currently available. Answer directly from your own knowledge."
+    # )
+    system_content = f"""
+        You are a helpful AI assistant.
+
+        Available local files:
+        {chr(10).join(f'- {fname}: "{_doc_title(fpath)}"' for fname, fpath in _list_docs()) if available_files else 'No local files are currently available.'}
+
+        General behavior rules:
+
+        1. First determine whether the user's request requires using any available tool.
+        2. Use tools ONLY when they are clearly relevant and necessary.
+        3. If no available tool is useful for answering the request, answer directly using your own knowledge.
+        4. Do NOT force tool usage.
+        5. If local files are available and the user asks about file contents, summaries, searches, analysis, extraction, or comparisons, use the read_file tool directly with the exact filename.
+        6. If the request can be answered without reading files, do not use read_file.
+        7. Prefer concise and efficient tool usage.
+        8. After using a tool, provide a natural language answer based on the tool output.
+        9. If a requested action cannot be completed with available tools, clearly say so and provide the best possible direct response.
+
+        Important:
+        - Tool availability does NOT mean the tool must be used.
+        - Always choose the simplest correct path:
+        - Tool if needed
+        - Direct LLM response otherwise
+    """.strip()
+    messages = [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": message},
+    ]
+    log.info("[tool-loop] model=%s base_url=%s tools=%s",
+             model, getattr(client, "base_url", "?"),
+             [t["function"]["name"] for t in tools])
+
+    result_blocks = []
+    cited_files: list = []
+    _MAX_ROUNDS = 5
+
+    for round_num in range(_MAX_ROUNDS):
+        resp = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=tools,
+        )
+        msg = resp.choices[0].message
+        tool_calls = getattr(msg, "tool_calls", None) or []
+        log.info("[tool-loop] round=%d finish_reason=%s tool_calls=%s",
+                 round_num, resp.choices[0].finish_reason,
+                 [tc.function.name for tc in tool_calls])
+
+        if not tool_calls:
+            if round_num == 0:
+                log.info("[tool-loop] no tool calls → direct answer")
+                yield msg.content or ""
+                return
+            break
+
+        # Append assistant turn so the next round has full context
+        messages.append(msg)
+
+        for tc in tool_calls:
+            result = _execute_tool_call(tc, pebblo_user_groups)
+            # Keep conversation history for chaining regardless of outcome
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result,
+            })
+            # Only accumulate meaningful results in result_blocks (skip failures/empty)
+            if _is_useful_tool_result(result):
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                label = args.get("url") or args.get("file_path") or args.get("pattern") or tc.function.name
+                result_blocks.append(
+                    f"--- Tool result: {tc.function.name}({label}) ---\n{result}\n--- End of result ---"
+                )
+                if tc.function.name == "read_file":
+                    fp = args.get("file_path", "")
+                    if fp:
+                        fname = os.path.basename(fp.strip("/\\"))
+                        if fname and fname not in cited_files:
+                            cited_files.append(fname)
+            else:
+                log.info("[tool-loop] skipping empty/failed result for %s", tc.function.name)
+
+        # If we already have useful results, skip asking the LLM for more tools —
+        # go straight to the final streaming call to save an extra round-trip.
+        # Only continue the loop when results are still empty (e.g. file_search
+        # returned nothing and the LLM should try a different tool).
+        if result_blocks:
+            break
+
+    # Persist cited files so the UI can render clickable source links after streaming
+    if cited_files:
+        st.session_state["_cited_files"] = cited_files
+
+    # Inject all collected tool results into the augmented prompt and stream
+    injected = "\n\n".join(result_blocks)
     augmented = f"{injected}\n\nUsing the above content, answer the following:\n{message}"
-    log.info("[tool-loop] augmented prompt length: %d chars", len(augmented))
+    log.info("[tool-loop] augmented prompt length: %d chars, blocks: %d, cited: %s",
+             len(augmented), len(result_blocks), cited_files)
 
     with client.chat.completions.create(
         model=model,
@@ -217,7 +525,11 @@ def _stream_message(client: OpenAI, model: str, message: str):
 
 
 def stream_open_ai(message: str, model: str, api_key: str = "", pebblo_user: str = "", pebblo_user_groups: str = ""):
-    """Yield tokens from OpenAI-compatible completions API (streaming), with fetch_web_page tool."""
+    """Yield tokens from OpenAI-compatible completions API (streaming).
+
+    fetch_web_page and file search tools are always offered to the LLM.
+    Per-file group restrictions are enforced at execution time via DOC_ACCESS_ALLOWED.
+    """
     default_headers = {}
     active_user = pebblo_user.strip() if pebblo_user and pebblo_user.strip() else X_PEBBLO_USER
     if active_user:
@@ -239,7 +551,7 @@ def stream_open_ai(message: str, model: str, api_key: str = "", pebblo_user: str
         http_client=http_client,
         max_retries=0,
     )
-    yield from _stream_message(client, model, message)
+    yield from _stream_message(client, model, message, pebblo_user_groups=active_groups or "")
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +571,7 @@ def stream_direct_openai(message: str, model: str) -> Generator:
         http_client=http_client,
         max_retries=0,
     )
-    yield from _stream_message(client, model, message)
+    yield from _stream_message(client, model, message, pebblo_user_groups="")
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +803,18 @@ with st.sidebar:
                 key=f"sidebar_prompt_{selected_lang}_{i}",
                 label_visibility="collapsed",
             )
+
+        # Documents section — list files from static/, clickable links open in new tab
+        _docs = _list_docs()
+        if _docs:
+            st.subheader("📁 Documents")
+            _current_groups = _get_active_pebblo_groups()
+            for _fname, _fpath in _docs:
+                if _is_file_readable(_fname, _current_groups):
+                    _render_file_link(_fname, _fpath)
+                else:
+                    st.caption(f"🔒 {_fname}")
+            st.markdown("---")
 
         if st.session_state.chat_history:
             chat_data = {
@@ -744,6 +1068,8 @@ if mode == "Safe Infer":
             model=message.get("model", ""),
             timestamp=message.get("timestamp", ""),
         )
+        if message["role"] == "assistant" and message.get("cited_files"):
+            st.markdown(_render_citations(message["cited_files"]), unsafe_allow_html=True)
 
     user_input = st.text_area(
         "Type your message here:",
@@ -780,11 +1106,15 @@ if mode == "Safe Infer":
                         pebblo_user_groups=_get_active_pebblo_groups(),
                     )
                 )
+            _cited = st.session_state.pop("_cited_files", [])
+            if _cited:
+                st.markdown(_render_citations(_cited), unsafe_allow_html=True)
             st.session_state.chat_history.append({
                 "role": "assistant",
                 "content": response,
                 "model": st.session_state.selected_model,
                 "timestamp": time.strftime("%H:%M:%S"),
+                "cited_files": _cited,
             })
         except Exception as e:
             error_message = f"❌ Error: {str(e)}"
