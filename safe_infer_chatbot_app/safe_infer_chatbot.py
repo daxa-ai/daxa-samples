@@ -84,15 +84,22 @@ def stream_open_ai(message: str, model: str, api_key: str = ""):
         http_client=http_client,
         max_retries=0,
     )
+    start_time = time.time()
+    first_token_time = None
     with client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": message}],
         stream=True,
     ) as stream:
         for chunk in stream:
+            if first_token_time is None:
+                first_token_time = time.time() - start_time
             delta = chunk.choices[0].delta.content
             if delta:
                 yield delta
+
+    # Store the time to first token in session state
+    st.session_state.time_to_first_token = first_token_time
 
 
 # Main header
@@ -228,6 +235,8 @@ for message in st.session_state.chat_history:
         content=message["content"],
         model=message.get("model", ""),
         timestamp=message.get("timestamp", ""),
+        time_taken=message.get("time_taken"),
+        time_to_first_token=message.get("time_to_first_token"),
     )
 
 user_input = st.text_area(
@@ -255,6 +264,7 @@ if send_button and user_input.strip():
         st.stop()
 
     try:
+        start_time = time.time()
         with st.chat_message("assistant"):
             response = st.write_stream(
                 stream_open_ai(
@@ -263,12 +273,17 @@ if send_button and user_input.strip():
                     api_key=st.session_state.api_key,
                 )
             )
+        end_time = time.time()
+        time_taken = end_time - start_time
+        time_to_first_token = getattr(st.session_state, 'time_to_first_token', None)
         print(f"RESPONSE: {response}")
         st.session_state.chat_history.append({
             "role": "assistant",
             "content": response,
             "model": st.session_state.selected_model,
             "timestamp": time.strftime("%H:%M:%S"),
+            "time_taken": time_taken,
+            "time_to_first_token": time_to_first_token,
         })
     except Exception as e:
         error_message = f"❌ Error: {str(e)}"

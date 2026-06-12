@@ -6,9 +6,11 @@ from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.tools import tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, MessagesState, StateGraph
+import trafilatura
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,6 +23,30 @@ load_dotenv(_env_path)
 from utils import API_BASE_URL, API_KEY, MODEL, X_PEBBLO_USER, X_PEBBLO_USER_GROUPS
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+
+MAX_FETCH_CHARS = 8000
+
+
+@tool
+def fetch_web_page(url: str) -> str:
+    """Fetch a web page by URL and return its main text content.
+    Use this when the user asks about a specific URL or wants the
+    contents of a web page summarized, explained, or quoted."""
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            return f"Error: could not download {url}"
+        text = trafilatura.extract(downloaded) or ""
+        log = logging.getLogger("safe_infer.tools")
+        log.info("[FETCH_WEB_PAGE] fetched %d chars from %s", len(text), url)
+        log.info("[FETCH_WEB_PAGE] content preview: %s", text.replace("\n", " "))
+        if not text.strip():
+            return f"Error: no extractable text at {url}"
+        if len(text) > MAX_FETCH_CHARS:
+            text = text[:MAX_FETCH_CHARS] + "\n…[truncated]"
+        return text
+    except Exception as e:
+        return f"Error fetching {url}: {e}"
 
 # Per-server Pebblo API key defaults (each server has its own key)
 ATLASSIAN_API_KEY = os.getenv("ATLASSIAN_API_KEY", "").strip() or None
@@ -183,10 +209,7 @@ async def setup_langgraph(
     pebblo_user_groups: Optional[str] = None,
 ):
     """Build and compile LangGraph bound to all provided MCP servers."""
-    if not mcp_servers:
-        raise ValueError(
-            "No MCP servers configured. Provide at least one server URL."
-        )
+    mcp_servers = mcp_servers or {}
 
     # Try each server individually so a single failing server doesn't block the others
     all_tools = []
@@ -204,10 +227,9 @@ async def setup_langgraph(
                             server_name, type(inner).__name__, inner)
 
     tools = all_tools
-    if not tools:
-        raise ValueError("No tools available — all configured MCP servers failed to connect.")
-    logging.info(f"Retrieved {len(tools)} tools from MCP servers: {[tool.name for tool in tools]}")
-    tools_by_name = {tool.name: tool for tool in tools}
+    tools.append(fetch_web_page)
+    logging.info(f"Retrieved {len(tools)} tools (incl. local fetch_web_page): {[t.name for t in tools]}")
+    tools_by_name = {t.name: t for t in tools}
     chat_model = _get_chat_model()
     model_with_tools = chat_model.bind_tools(tools)
 
