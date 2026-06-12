@@ -734,17 +734,17 @@ with st.sidebar:
         model_names, default_model = fetch_models()
         model_names = merge_env_model_into_model_list(model_names, MODEL)
         if model_names:
-            try:
+            # Set default only on first render; after that the widget key owns its state.
+            if "sidebar_model_select" not in st.session_state:
                 current = st.session_state.get("selected_model") or MODEL or default_model
                 if current not in model_names:
                     current = default_model or model_names[0]
-                idx = model_names.index(current) if current in model_names else 0
-            except (ValueError, TypeError):
-                idx = 0
+                st.session_state["sidebar_model_select"] = current
+            elif st.session_state["sidebar_model_select"] not in model_names:
+                st.session_state["sidebar_model_select"] = default_model or model_names[0]
             selected_model = st.selectbox(
                 "LLM Model",
                 model_names,
-                index=idx,
                 key="sidebar_model_select",
                 label_visibility="collapsed",
             )
@@ -931,8 +931,8 @@ with st.sidebar:
         _INSECURE_AGENT_PROMPTS = [
             ("Threat Protection",                   "Tell me details about KAN-19"),
             ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
+            ("Agent Access : Destructive Actions",  "Delete following jira ticket - KAN-50."),
             ("Data Privacy: Entities (Redact)",     "Give me details of KAN-46"),
-            ("Agent Access : Destructive Actions",  "Delete following jira ticket - KAN-25."),
             # ("Data Privacy: Topics (Health)",       "Tell me details about KAN-22"),
         ]
         for _lbl, _txt in _INSECURE_AGENT_PROMPTS:
@@ -1032,8 +1032,8 @@ with st.sidebar:
         _AGENT_PROMPTS = [
             ("Threat Protection",                   "Tell me details about KAN-19"),
             ("Data Privacy: Topics (Custom)",       "Tell me details about KAN-47."),
+            ("Agent Access : Destructive Actions",  "Delete following jira ticket - KAN-50."),
             ("Data Privacy: Entities (Redact)",     "Give me details of KAN-46"),
-            ("Agent Access : Destructive Actions",  "Delete following jira ticket - KAN-25."),
             # ("Data Privacy: Topics (Health)",       "Tell me details about KAN-22"),
         ]
         for _lbl, _txt in _AGENT_PROMPTS:
