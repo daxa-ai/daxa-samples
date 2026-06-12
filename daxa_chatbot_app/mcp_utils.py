@@ -128,7 +128,7 @@ def build_mcp_servers(
     if a_url:
         servers["atlassian"] = {
             "url": a_url,
-            "transport": "sse",
+            "transport": "streamable_http",
             "headers": _headers_for(atlassian_api_key or ATLASSIAN_API_KEY, atlassian_token),
         }
 
@@ -231,6 +231,22 @@ async def setup_langgraph(
     logging.info(f"Retrieved {len(tools)} tools (incl. local fetch_web_page): {[t.name for t in tools]}")
     tools_by_name = {t.name: t for t in tools}
     chat_model = _get_chat_model()
+    SYSTEM_PROMPT = """You are an AI assistant with access to Jira, Confluence, and web tools.
+
+CRITICAL: When the user asks about tickets, issues, confluence pages, or anything related to enterprise systems:
+1. ALWAYS use the domain-specific Jira/Confluence tools first
+2. NEVER use generic 'search' or 'fetch' for enterprise queries
+3. Use getJiraIssue, searchJiraIssuesUsingJql, getConfluencePage, searchConfluenceUsingCql, etc.
+
+Tool categories:
+- Jira: getJiraIssue, searchJiraIssuesUsingJql, createJiraIssue, editJiraIssue, transitionJiraIssue, addCommentToJiraIssue, lookupJiraAccountId, getVisibleJiraProjects, etc.
+- Confluence: getConfluencePage, searchConfluenceUsingCql, createConfluencePage, updateConfluencePage, getConfluenceSpaces, etc.
+- Web: fetch_web_page (only for external URLs, not internal systems)
+- Generic: search, fetch (only as last resort for unstructured queries)
+
+Always prefer Jira/Confluence tools over generic tools."""
+
+    # model_with_tools = chat_model.bind_tools(tools, system_prompt=system_prompt)
     model_with_tools = chat_model.bind_tools(tools)
 
     async def async_tool_node(state: MessagesState):
@@ -263,7 +279,10 @@ async def setup_langgraph(
 
     async def call_model(state: MessagesState):
         logging.info("[Graph] call_model: invoking LLM with %d messages", len(state["messages"]))
-        response = await model_with_tools.ainvoke(state["messages"])
+        messages_with_system = [
+            {"role": "system", "content": SYSTEM_PROMPT}
+        ] + state["messages"]
+        response = await model_with_tools.ainvoke(messages_with_system)
         logging.info("[Graph] call_model: response type=%s, tool_calls=%s",
                      type(response).__name__,
                      [tc["name"] for tc in response.tool_calls] if hasattr(response, "tool_calls") and response.tool_calls else [])
