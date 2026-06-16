@@ -276,6 +276,9 @@ from mcp_utils import (
     SHOW_ATLASSIAN_OAUTH,
     SHOW_ATLASSIAN_DOCKER,
     SHOW_CUSTOMER_BILLING,
+    SAFE_INFER_CONTEXT,
+    INSECURE_INFER_CONTEXT,
+    USE_PROXIMA_FOR_INSECURE_AGENT,
     build_mcp_servers,
     build_direct_mcp_servers,
     stream_query_steps as mcp_stream_query_steps,
@@ -534,10 +537,10 @@ def stream_open_ai(message: str, model: str, api_key: str = "", pebblo_user: str
     active_user = pebblo_user.strip() if pebblo_user and pebblo_user.strip() else X_PEBBLO_USER
     if active_user:
         default_headers["X-PEBBLO-USER"] = active_user
+    
     active_groups = pebblo_user_groups.strip() if pebblo_user_groups and pebblo_user_groups.strip() else X_PEBBLO_USER_GROUPS
     if active_groups:
         default_headers["X-PEBBLO-USER-GROUPS"] = active_groups
-    default_headers = default_headers or None
 
     http_client = httpx.Client(
         timeout=300,
@@ -578,8 +581,8 @@ def stream_direct_openai(message: str, model: str) -> Generator:
 # Safe MCP helpers
 # ---------------------------------------------------------------------------
 
-async def _run_mcp_streaming(user_input: str, mcp_servers: dict, pebblo_user: str, pebblo_user_groups: str):
-    """Run Safe MCP query with streaming status updates."""
+async def _run_mcp_streaming(user_input: str, mcp_servers: dict, pebblo_user: str, pebblo_user_groups: str, use_proxima: bool = False):
+    """Run MCP query with streaming status updates."""
     current_response = ""
     tools_used = []
     intermediate_steps = []
@@ -591,6 +594,7 @@ async def _run_mcp_streaming(user_input: str, mcp_servers: dict, pebblo_user: st
         mcp_servers=mcp_servers,
         pebblo_user=pebblo_user or None,
         pebblo_user_groups=pebblo_user_groups or None,
+        use_proxima=use_proxima,
     ):
         if step_message.startswith("Final answer"):
             current_response = step_message.replace("Final answer: ", "")
@@ -638,9 +642,9 @@ async def _run_mcp_streaming(user_input: str, mcp_servers: dict, pebblo_user: st
         st.session_state.mcp_tools_used = tools_used
 
 
-def run_mcp_query(user_input: str, mcp_servers: dict, pebblo_user: str, pebblo_user_groups: str):
+def run_mcp_query(user_input: str, mcp_servers: dict, pebblo_user: str, pebblo_user_groups: str, use_proxima: bool = False):
     asyncio.run(
-        _run_mcp_streaming(user_input, mcp_servers, pebblo_user, pebblo_user_groups)
+        _run_mcp_streaming(user_input, mcp_servers, pebblo_user, pebblo_user_groups, use_proxima=use_proxima)
     )
 
 
@@ -712,7 +716,7 @@ with st.sidebar:
     if PEBBLO_USERS_LIST and mode in ("Safe Infer", "Safe Agent"):
         st.subheader("👤 User")
         st.selectbox(
-            "User",
+            "Select User",
             options=PEBBLO_USERS_LIST,
             format_func=format_display_name,
             key="selected_pebblo_user",
@@ -980,7 +984,7 @@ with st.sidebar:
 
         def _pebblo_headers_for_oauth():
             return _pebblo_mcp_headers(
-                pebblo_user=st.session_state.get("mcp_user_input") or None,
+                pebblo_user=st.session_state.get("selected_pebblo_user") or None,
                 pebblo_user_groups=st.session_state.get("mcp_groups_input") or None,
             )
 
@@ -1083,17 +1087,37 @@ if mode == "Safe Infer":
         send_button = st.button("🚀 Send", type="primary")
 
     if send_button and user_input.strip():
-        st.session_state.chat_history.append({
-            "role": "user",
-            "content": user_input,
-            "timestamp": time.strftime("%H:%M:%S"),
-        })
-        display_chat_message("user", user_input)
+        if SAFE_INFER_CONTEXT:
+            direct_mcp_servers = build_direct_mcp_servers(
+                atlassian_url=st.session_state.get("direct_atlassian_url", "") if SHOW_ATLASSIAN_DOCKER else "",
+                atlassian_oauth_url=st.session_state.get("direct_atlassian_oauth_url", "") if SHOW_ATLASSIAN_OAUTH else "",
+                atlassian_token=get_oauth_token("direct_atlassian") if SHOW_ATLASSIAN_OAUTH else None,
+                billing_url=st.session_state.get("direct_billing_url", "") if SHOW_CUSTOMER_BILLING else "",
+            )
+            if not direct_mcp_servers:
+                st.error("Configure at least one MCP server URL in the sidebar.")
+            else:
+                st.session_state.mcp_responses = []
+                st.session_state.mcp_tools_used = []
+                run_mcp_query(
+                    user_input=user_input,
+                    mcp_servers=direct_mcp_servers,
+                    pebblo_user="",
+                    pebblo_user_groups="",
+                    use_proxima=True,
+                )
+        else:
+            st.session_state.chat_history.append({
+                "role": "user",
+                "content": user_input,
+              "timestamp": time.strftime("%H:%M:%S"),
+          })
+          display_chat_message("user", user_input)
 
-        model = (st.session_state.get("selected_model") or "").strip()
-        if not model:
-            st.error("No model selected. Load models from API or enter a model ID.")
-            st.stop()
+          model = (st.session_state.get("selected_model") or "").strip()
+          if not model:
+              st.error("No model selected. Load models from API or enter a model ID.")
+              st.stop()
 
         try:
             with st.chat_message("assistant"):
@@ -1124,8 +1148,39 @@ if mode == "Safe Infer":
                 "content": error_message,
                 "timestamp": time.strftime("%H:%M:%S"),
             })
+            display_chat_message("user", user_input)
 
-        st.rerun()
+            model = (st.session_state.get("selected_model") or "").strip()
+            if not model:
+                st.error("No model selected. Load models from API or enter a model ID.")
+                st.stop()
+
+            try:
+                with st.chat_message("assistant"):
+                    response = st.write_stream(
+                        stream_open_ai(
+                            message=user_input,
+                            model=model,
+                            api_key=st.session_state.api_key,
+                            pebblo_user=st.session_state.get("selected_pebblo_user") or None,
+                        )
+                    )
+                st.session_state.chat_history.append({
+                    "role": "assistant",
+                    "content": response,
+                    "model": st.session_state.selected_model,
+                    "timestamp": time.strftime("%H:%M:%S"),
+                })
+            except Exception as e:
+                error_message = f"❌ Error: {str(e)}"
+                st.error(error_message)
+                st.session_state.chat_history.append({
+                    "role": "assistant",
+                    "content": error_message,
+                    "timestamp": time.strftime("%H:%M:%S"),
+                })
+
+            st.rerun()
 
 elif mode == "InSecure Infer":
     for message in st.session_state.direct_chat_history:
@@ -1148,39 +1203,59 @@ elif mode == "InSecure Infer":
         direct_send = st.button("🚀 Send", type="primary", key="direct_send_btn")
 
     if direct_send and user_input_direct.strip():
-        st.session_state.direct_chat_history.append({
-            "role": "user",
-            "content": user_input_direct,
-            "timestamp": time.strftime("%H:%M:%S"),
-        })
-        display_chat_message("user", user_input_direct)
-
-        direct_model = (st.session_state.get("direct_model") or MODEL or "gpt-5").strip()
-
-        try:
-            with st.chat_message("assistant"):
-                response = st.write_stream(
-                    stream_direct_openai(
-                        message=user_input_direct,
-                        model=direct_model,
-                    )
+        if INSECURE_INFER_CONTEXT:
+            direct_mcp_servers = build_direct_mcp_servers(
+                atlassian_url=st.session_state.get("direct_atlassian_url", "") if SHOW_ATLASSIAN_DOCKER else "",
+                atlassian_oauth_url=st.session_state.get("direct_atlassian_oauth_url", "") if SHOW_ATLASSIAN_OAUTH else "",
+                atlassian_token=get_oauth_token("direct_atlassian") if SHOW_ATLASSIAN_OAUTH else None,
+                billing_url=st.session_state.get("direct_billing_url", "") if SHOW_CUSTOMER_BILLING else "",
+            )
+            if not direct_mcp_servers:
+                st.error("Configure at least one MCP server URL in the sidebar.")
+            else:
+                st.session_state.direct_mcp_responses = []
+                st.session_state.direct_mcp_tools_used = []
+                run_mcp_query(
+                    user_input=user_input_direct,
+                    mcp_servers=direct_mcp_servers,
+                    pebblo_user="",
+                    pebblo_user_groups="",
+                    use_proxima=False,
                 )
+        else:
             st.session_state.direct_chat_history.append({
-                "role": "assistant",
-                "content": response,
-                "model": direct_model,
+                "role": "user",
+                "content": user_input_direct,
                 "timestamp": time.strftime("%H:%M:%S"),
             })
-        except Exception as e:
-            error_message = f"❌ Error: {str(e)}"
-            st.error(error_message)
-            st.session_state.direct_chat_history.append({
-                "role": "assistant",
-                "content": error_message,
-                "timestamp": time.strftime("%H:%M:%S"),
-            })
+            display_chat_message("user", user_input_direct)
 
-        st.rerun()
+            direct_model = (st.session_state.get("direct_model") or MODEL or "gpt-5").strip()
+
+            try:
+                with st.chat_message("assistant"):
+                    response = st.write_stream(
+                        stream_direct_openai(
+                            message=user_input_direct,
+                            model=direct_model,
+                        )
+                    )
+                st.session_state.direct_chat_history.append({
+                    "role": "assistant",
+                    "content": response,
+                    "model": direct_model,
+                    "timestamp": time.strftime("%H:%M:%S"),
+                })
+            except Exception as e:
+                error_message = f"❌ Error: {str(e)}"
+                st.error(error_message)
+                st.session_state.direct_chat_history.append({
+                    "role": "assistant",
+                    "content": error_message,
+                    "timestamp": time.strftime("%H:%M:%S"),
+                })
+
+            st.rerun()
 
 elif mode == "InSecure Agent":
     if "direct_mcp_responses" not in st.session_state:
@@ -1206,14 +1281,18 @@ elif mode == "InSecure Agent":
             atlassian_token=get_oauth_token("direct_atlassian") if SHOW_ATLASSIAN_OAUTH else None,
             billing_url=st.session_state.get("direct_billing_url", "") if SHOW_CUSTOMER_BILLING else "",
         )
-        st.session_state.direct_mcp_responses = []
-        st.session_state.direct_mcp_tools_used = []
-        run_mcp_query(
-            user_input=direct_mcp_query,
-            mcp_servers=direct_mcp_servers,
-            pebblo_user="",
-            pebblo_user_groups="",
-        )
+        if not direct_mcp_servers:
+            st.error("Configure at least one MCP server URL in the sidebar.")
+        else:
+            st.session_state.direct_mcp_responses = []
+            st.session_state.direct_mcp_tools_used = []
+            run_mcp_query(
+                user_input=direct_mcp_query,
+                mcp_servers=direct_mcp_servers,
+                pebblo_user="",
+                pebblo_user_groups="",
+                use_proxima=USE_PROXIMA_FOR_INSECURE_AGENT,
+            )
 
 elif mode == "Safe Agent":
     mcp_query = st.text_area(
@@ -1241,14 +1320,17 @@ elif mode == "Safe Agent":
             pebblo_user_groups=_active_pebblo_groups,
             atlassian_token=get_oauth_token("atlassian") if SHOW_ATLASSIAN_OAUTH else None,
         )
-        st.session_state.mcp_responses = []
-        st.session_state.mcp_tools_used = []
-        run_mcp_query(
-            user_input=mcp_query,
-            mcp_servers=mcp_servers,
-            pebblo_user=_active_pebblo_user,
-            pebblo_user_groups=_active_pebblo_groups,
-        )
+        if not mcp_servers:
+            st.error("Configure at least one MCP server URL in the sidebar.")
+        else:
+          st.session_state.mcp_responses = []
+          st.session_state.mcp_tools_used = []
+          run_mcp_query(
+              user_input=mcp_query,
+              mcp_servers=mcp_servers,
+              pebblo_user=_active_pebblo_user,
+              pebblo_user_groups=_active_pebblo_groups,
+          )
 
 # Footer
 st.markdown("---")
