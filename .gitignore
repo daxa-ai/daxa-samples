@@ -8,3 +8,5 @@ __pycache__/
 .idea/
 *.claude
 **/__pycache__/
+.venv/
+**/.venv/
