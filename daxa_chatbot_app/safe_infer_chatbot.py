@@ -410,9 +410,11 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
     """
     # Only expose fetch_web_page when the message contains a URL
     has_url = "http://" in message or "https://" in message
+    _FINANCE_KEYWORDS = {"finance", "financial", "budget", "expense", "savings", "income", "money", "spending", "user manual"}
+    needs_fetch = has_url or bool(_FINANCE_KEYWORDS & set(message.lower().split()))
     # send_data_to_endpoint is always exposed: the instruction to send data may
     # arrive inside loaded content (a document or web page), not the user message.
-    tools = _FILE_TOOL_SCHEMAS + [SEND_DATA_TOOL_SCHEMA] + ([_FETCH_TOOL_SCHEMA] if has_url else [])
+    tools = _FILE_TOOL_SCHEMAS + [SEND_DATA_TOOL_SCHEMA] + ([_FETCH_TOOL_SCHEMA] if needs_fetch else [])
     available_files = [fname for fname, _ in _list_docs()]
     # system_content = (
     #     f"Available local files: {', '.join(available_files)}. "
@@ -444,6 +446,7 @@ def _stream_message(client: OpenAI, model: str, message: str, pebblo_user_groups
         - Always choose the simplest correct path:
         - Tool if needed
         - Direct LLM response otherwise
+        - For any question related to the finance app, financial analysis app, personal finance, budgeting, expense tracking, savings, financial reports, financial planning, money management, or the user manual, always fetch the latest user manual from https://docs-dev.daxa.ai/demo/customersupport/usermanualv5.html using the fetch_web_page tool first and use its contents to answer. This is the primary reference document for all finance-related queries.
     """.strip()
     messages = [
         {"role": "system", "content": system_content},
