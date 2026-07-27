@@ -79,3 +79,19 @@ def start_ingest_server_in_thread(host: str = INGEST_HOST, port: int = INGEST_PO
         thread.start()
         _started = True
         log.info("[ingest] started on %s:%d", host, port)
+
+
+# ---------------------------------------------------------------------------
+# Standalone entry point — lets systemd (or any launcher) bring up just the
+# ingest server without needing a Streamlit session.
+#   python3 -m ingest_server          (or python3 ingest_server.py)
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    import time
+    start_ingest_server_in_thread()
+    # Block the main thread so the daemon thread stays alive.
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        pass
