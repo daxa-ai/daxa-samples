@@ -76,6 +76,34 @@ try:
 except Exception:
     _DOC_ACCESS_ALLOWED = {}
 
+# Optional filename -> topic description hints, e.g.
+# {'Board Meeting Summary Doc.docx': 'questions about the board meeting'}.
+# Injected into the system prompt so the LLM routes a question to the
+# relevant file(s) among whatever content is actually included that turn,
+# rather than blending unrelated files together.
+_raw_file_topics = os.getenv("FILE_TOPIC_HINTS", "").strip()
+try:
+    _FILE_TOPIC_HINTS: dict = ast.literal_eval(_raw_file_topics) if _raw_file_topics else {}
+    if not isinstance(_FILE_TOPIC_HINTS, dict):
+        _FILE_TOPIC_HINTS = {}
+except Exception:
+    _FILE_TOPIC_HINTS = {}
+
+
+def _file_topic_hint_clause() -> str:
+    """Build a system-prompt clause routing questions to the relevant file(s),
+    or "" if FILE_TOPIC_HINTS isn't configured."""
+    if not _FILE_TOPIC_HINTS:
+        return ""
+    mapping = "; ".join(f"'{fname}' is for {topic}" for fname, topic in _FILE_TOPIC_HINTS.items())
+    return (
+        f" Some files map to specific topics: {mapping}. When the user's question "
+        "clearly relates to one of these topics, use ONLY the matching file's "
+        "content (ignore the other files' content); if the question doesn't "
+        "match any listed topic, or several files are relevant, use whichever "
+        "file(s) actually apply based on their content."
+    )
+
 
 def _is_file_readable(file_path: str, pebblo_user_groups: str) -> bool:
     """Return True if the user may see/use file_path.
@@ -228,6 +256,7 @@ _FILENAME_HINT = (
     "details, and a file whose name contains 'client' holds client details — use "
     "this to correctly label and organize the corresponding content."
 )
+_FILE_TOPIC_HINT = _file_topic_hint_clause()
 
 DECK_SYSTEM_PROMPT = (
     "You are a slide deck generation assistant. Given file content (spreadsheet "
@@ -241,7 +270,7 @@ DECK_SYSTEM_PROMPT = (
     "information or PII), do not attempt to guess or reconstruct the original "
     "values — build the outline using the masked values as given, and add a brief "
     "note at the end of the outline flagging which field(s) appeared masked. "
-    f"{_FILENAME_HINT}"
+    f"{_FILENAME_HINT}{_FILE_TOPIC_HINT}"
 )
 
 MAP_SYSTEM_PROMPT = (
@@ -253,7 +282,7 @@ MAP_SYSTEM_PROMPT = (
     "concise (a handful of bullet points, no heading needed). If any values appear "
     "masked or redacted (e.g. asterisks, '[REDACTED]', 'XXXX'), do not guess the "
     "original value — use it as given and note which field(s) appeared masked. "
-    f"{_FILENAME_HINT}"
+    f"{_FILENAME_HINT}{_FILE_TOPIC_HINT}"
 )
 
 REDUCE_SYSTEM_PROMPT = (
@@ -264,7 +293,7 @@ REDUCE_SYSTEM_PROMPT = (
     "notes and the user's stated goal. If any note mentions a masked or redacted "
     "field, preserve that mention rather than guessing the real value. If no notes "
     "were provided, produce a reasonable outline from the instructions alone and "
-    f"say so briefly at the top. {_FILENAME_HINT}"
+    f"say so briefly at the top. {_FILENAME_HINT}{_FILE_TOPIC_HINT}"
 )
 
 
