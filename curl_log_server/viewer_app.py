@@ -8,6 +8,7 @@ Run:
     streamlit run viewer_app.py --server.port 8600
 """
 import json
+import os
 import urllib.request
 
 import streamlit as st
@@ -19,7 +20,8 @@ from ingest_server import INGEST_HOST, INGEST_PORT, start_ingest_server_in_threa
 start_ingest_server_in_thread()
 
 INGEST_DISPLAY_HOST = "localhost" if INGEST_HOST in ("0.0.0.0", "") else INGEST_HOST
-INGEST_URL = f"http://{INGEST_DISPLAY_HOST}:{INGEST_PORT}/ingest"
+# The public-facing ingest URL shown in the UI (override via env for production).
+INGEST_URL = os.getenv("CURL_LOG_INGEST_URL", "").strip() or "https://curl-log-ingest.daxa.ai/ingest"
 HEALTH_URL = f"http://{INGEST_DISPLAY_HOST}:{INGEST_PORT}/health"
 
 st.set_page_config(page_title="Curl Log Server", page_icon="📡", layout="wide")
