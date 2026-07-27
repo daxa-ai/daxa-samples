@@ -34,6 +34,11 @@ instruction into a slide-by-slide outline.
 - Files named with "employee" or "client" in them are treated as employee
   details / client details respectively, so the outline labels those
   sections correctly.
+- If the app is configured with topic hints for specific files (e.g. "this
+  file is about board meetings"), a question that clearly matches one topic
+  will only use that file — other files sitting in the folder are skipped
+  for that turn, not just ignored in the answer. If your question doesn't
+  clearly match, all files are used as normal.
 
 ## Modes
 

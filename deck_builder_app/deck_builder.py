@@ -6,6 +6,7 @@ Two modes, selectable from the sidebar:
 """
 import ast
 import os
+import re
 import time
 
 import streamlit as st
@@ -78,9 +79,9 @@ except Exception:
 
 # Optional filename -> topic description hints, e.g.
 # {'Board Meeting Summary Doc.docx': 'questions about the board meeting'}.
-# Injected into the system prompt so the LLM routes a question to the
-# relevant file(s) among whatever content is actually included that turn,
-# rather than blending unrelated files together.
+# Used to pre-filter which files get read/parsed/sent to the LLM at all, based
+# on keyword overlap with the user's prompt — done in code (see
+# _filter_by_topic_relevance), not left to the LLM to sort out after the fact.
 _raw_file_topics = os.getenv("FILE_TOPIC_HINTS", "").strip()
 try:
     _FILE_TOPIC_HINTS: dict = ast.literal_eval(_raw_file_topics) if _raw_file_topics else {}
@@ -89,20 +90,47 @@ try:
 except Exception:
     _FILE_TOPIC_HINTS = {}
 
+_TOPIC_STOPWORDS = {
+    "a", "an", "the", "of", "to", "for", "and", "or", "is", "are", "about",
+    "on", "in", "with", "related", "questions", "question", "regarding", "any",
+}
 
-def _file_topic_hint_clause() -> str:
-    """Build a system-prompt clause routing questions to the relevant file(s),
-    or "" if FILE_TOPIC_HINTS isn't configured."""
+
+def _topic_keywords(topic: str) -> set:
+    words = re.findall(r"[a-z0-9]+", topic.lower())
+    return {w for w in words if w not in _TOPIC_STOPWORDS and len(w) > 2}
+
+
+def _filter_by_topic_relevance(eligible: list, user_input: str) -> tuple:
+    """Narrow `eligible` down to the file(s) relevant to user_input, per
+    FILE_TOPIC_HINTS. Files without a configured hint are always kept — hints
+    only ever narrow among files that HAVE one, never exclude unhinted files.
+
+    If no hinted file's keywords overlap the prompt at all, nothing is narrowed
+    (fail open: better to include a possibly-irrelevant file than silently
+    drop one that was actually needed for an unexpectedly-worded question).
+
+    Returns (kept, excluded) — excluded is [(fname, reason), ...] for the
+    response's transparency note.
+    """
     if not _FILE_TOPIC_HINTS:
-        return ""
-    mapping = "; ".join(f"'{fname}' is for {topic}" for fname, topic in _FILE_TOPIC_HINTS.items())
-    return (
-        f" Some files map to specific topics: {mapping}. When the user's question "
-        "clearly relates to one of these topics, use ONLY the matching file's "
-        "content (ignore the other files' content); if the question doesn't "
-        "match any listed topic, or several files are relevant, use whichever "
-        "file(s) actually apply based on their content."
-    )
+        return eligible, []
+
+    user_words = set(re.findall(r"[a-z0-9]+", user_input.lower()))
+    hinted_matches = {
+        fname: bool(_topic_keywords(topic) & user_words)
+        for fname, topic in _FILE_TOPIC_HINTS.items()
+    }
+    if not any(hinted_matches.values()):
+        return eligible, []  # no confident match anywhere -> don't narrow
+
+    kept, excluded = [], []
+    for fname, fpath in eligible:
+        if fname in hinted_matches and not hinted_matches[fname]:
+            excluded.append((fname, f"not relevant to '{_FILE_TOPIC_HINTS[fname]}'"))
+        else:
+            kept.append((fname, fpath))
+    return kept, excluded
 
 
 def _is_file_readable(file_path: str, pebblo_user_groups: str) -> bool:
@@ -256,7 +284,6 @@ _FILENAME_HINT = (
     "details, and a file whose name contains 'client' holds client details — use "
     "this to correctly label and organize the corresponding content."
 )
-_FILE_TOPIC_HINT = _file_topic_hint_clause()
 
 DECK_SYSTEM_PROMPT = (
     "You are a slide deck generation assistant. Given file content (spreadsheet "
@@ -270,7 +297,7 @@ DECK_SYSTEM_PROMPT = (
     "information or PII), do not attempt to guess or reconstruct the original "
     "values — build the outline using the masked values as given, and add a brief "
     "note at the end of the outline flagging which field(s) appeared masked. "
-    f"{_FILENAME_HINT}{_FILE_TOPIC_HINT}"
+    f"{_FILENAME_HINT}"
 )
 
 MAP_SYSTEM_PROMPT = (
@@ -282,7 +309,7 @@ MAP_SYSTEM_PROMPT = (
     "concise (a handful of bullet points, no heading needed). If any values appear "
     "masked or redacted (e.g. asterisks, '[REDACTED]', 'XXXX'), do not guess the "
     "original value — use it as given and note which field(s) appeared masked. "
-    f"{_FILENAME_HINT}{_FILE_TOPIC_HINT}"
+    f"{_FILENAME_HINT}"
 )
 
 REDUCE_SYSTEM_PROMPT = (
@@ -293,7 +320,7 @@ REDUCE_SYSTEM_PROMPT = (
     "notes and the user's stated goal. If any note mentions a masked or redacted "
     "field, preserve that mention rather than guessing the real value. If no notes "
     "were provided, produce a reasonable outline from the instructions alone and "
-    f"say so briefly at the top. {_FILENAME_HINT}{_FILE_TOPIC_HINT}"
+    f"say so briefly at the top. {_FILENAME_HINT}"
 )
 
 
@@ -387,7 +414,7 @@ def _map_source_files(client: OpenAI, model: str, eligible: list, user_input: st
     return partials, skipped, file_timings
 
 
-def _reduce_stream(client: OpenAI, model: str, partials: list, user_input: str, skipped: list, locked: list, timing: dict = None):
+def _reduce_stream(client: OpenAI, model: str, partials: list, user_input: str, skipped: list, locked: list, topic_excluded: list = None, timing: dict = None):
     """Final streaming call combining collected partials, plus a deterministic
     (not LLM-generated) skip-summary note appended after streaming completes."""
     if partials:
@@ -403,6 +430,8 @@ def _reduce_stream(client: OpenAI, model: str, partials: list, user_input: str, 
         note_parts.append(f"{len(skipped)} source file(s) could not be processed and were excluded: {detail}")
     if locked:
         note_parts.append(f"{len(locked)} file(s) were not accessible to the current user: {', '.join(locked)}")
+    if topic_excluded:
+        note_parts.append(f"{len(topic_excluded)} file(s) excluded as not relevant to this question: {', '.join(fname for fname, _ in topic_excluded)}")
     if note_parts:
         yield f"\n\n---\n*Note: {'; '.join(note_parts)}.*"
 
@@ -466,12 +495,18 @@ def run_deck_pipeline(client: OpenAI, model: str, user_input: str, augmented_upl
         return
 
     eligible, locked = _eligible_source_files(pebblo_groups)
+    eligible, topic_excluded = _filter_by_topic_relevance(eligible, user_input)
     if not eligible:
         timing: dict = {}
         yield from _call_stream(client, model, DECK_SYSTEM_PROMPT, user_input, timing=timing)
         trailer = []
+        note_parts = []
         if locked:
-            trailer.append(f"*Note: {len(locked)} file(s) were not accessible to the current user: {', '.join(locked)}.*")
+            note_parts.append(f"{len(locked)} file(s) were not accessible to the current user: {', '.join(locked)}")
+        if topic_excluded:
+            note_parts.append(f"{len(topic_excluded)} file(s) excluded as not relevant to this question: {', '.join(fname for fname, _ in topic_excluded)}")
+        if note_parts:
+            trailer.append(f"*Note: {'; '.join(note_parts)}.*")
         if DEBUG_ENABLED:
             total_s = time.perf_counter() - pipeline_start
             trailer.append(f"*{_timing_note('LLM call', timing, total_s)}*")
@@ -482,7 +517,7 @@ def run_deck_pipeline(client: OpenAI, model: str, user_input: str, augmented_upl
     if MULTI_PASS_ENABLED:
         partials, skipped, file_timings = _map_source_files(client, model, eligible, user_input)
         reduce_timing: dict = {}
-        yield from _reduce_stream(client, model, partials, user_input, skipped, locked, timing=reduce_timing)
+        yield from _reduce_stream(client, model, partials, user_input, skipped, locked, topic_excluded, timing=reduce_timing)
 
         if DEBUG_ENABLED:
             total_s = time.perf_counter() - pipeline_start
@@ -511,6 +546,8 @@ def run_deck_pipeline(client: OpenAI, model: str, user_input: str, augmented_upl
         note_parts.append(f"{len(parse_skipped)} source file(s) could not be parsed and were excluded: {detail}")
     if locked:
         note_parts.append(f"{len(locked)} file(s) were not accessible to the current user: {', '.join(locked)}")
+    if topic_excluded:
+        note_parts.append(f"{len(topic_excluded)} file(s) excluded as not relevant to this question: {', '.join(fname for fname, _ in topic_excluded)}")
 
     trailer = []
     if note_parts:

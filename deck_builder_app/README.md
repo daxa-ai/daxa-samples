@@ -146,6 +146,23 @@ using a faster model, trimming very large files (see `MAX_ROWS_PER_SHEET` /
 `MAX_CHARS` in `file_parser.py`), or switching to single pass are the main
 levers if that step dominates.
 
+### Topic-based file routing
+
+Set `FILE_TOPIC_HINTS` (filename -> topic description, same style as
+`DOC_ACCESS_ALLOWED`) to have the app skip reading/sending files that clearly
+don't match the question — before any file is parsed or sent to the LLM, not
+as a prompt instruction hoping the model ignores irrelevant content:
+
+- The user's prompt is checked for keyword overlap with each hinted file's
+  topic description.
+- A hinted file whose topic doesn't overlap the prompt is excluded from that
+  turn entirely (skipped, cheaper and faster than including it).
+- Files with no hint configured are always included.
+- If no hinted file matches at all, nothing is excluded — an unexpectedly
+  worded question never silently loses a file it might have needed.
+- Any exclusion is noted in the response, e.g. *"1 file(s) excluded as not
+  relevant to this question: Board Meeting Summary Doc.docx."*
+
 ---
 
 ## Notes
