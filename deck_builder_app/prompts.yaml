@@ -1,0 +1,31 @@
+# Language-based sample prompts for the sidebar.
+# Top-level keys are language codes (e.g. en, ko). Add more languages as needed.
+# Each prompt has: label (category), full_text (sent to API if used), copyable (text shown for copy).
+
+en:
+  - label: Quarterly Update
+    copyable: "Create a 5-slide investor update summarizing this quarter's revenue by region. Include a title slide, a key-highlights slide, and a closing next-steps slide."
+  - label: Executive Summary
+    copyable: "Turn this data into a 4-slide executive summary deck: a title slide, a summary of the top trends, a slide with the top 3 risks, and a closing recommendations slide."
+  - label: Sales Review
+    copyable: "Build a sales review deck from this spreadsheet: one slide per product category, showing units sold and revenue, plus a final summary slide."
+  - label: No File
+    copyable: "I don't have a file to upload right now — outline a generic 3-slide deck structure for a monthly team status update."
+
+ko:
+  - label: Quarterly Update
+    copyable: "이 스프레드시트를 바탕으로 지역별 이번 분기 매출을 요약하는 5장짜리 투자자 업데이트 덱을 만들어 주세요."
+  - label: Executive Summary
+    copyable: "이 데이터를 4장짜리 경영진 요약 덱으로 만들어 주세요: 제목 슬라이드, 주요 트렌드 요약, 상위 3가지 리스크, 마무리 권고사항."
+
+ch:
+  - label: Quarterly Update
+    copyable: "根據此電子表格，製作一份包含 5 張投影片的投資者季度更新簡報，按地區總結本季度營收。"
+  - label: Executive Summary
+    copyable: "把這份資料轉換成一份 4 張投影片的高階主管摘要簡報：標題頁、主要趨勢摘要、前三大風險、以及結論建議。"
+
+ar:
+  - label: Quarterly Update
+    copyable: "أنشئ عرضاً تقديمياً من 5 شرائح لتحديث المستثمرين يلخص إيرادات هذا الربع حسب المنطقة، بالاستناد إلى هذا الملف."
+  - label: Executive Summary
+    copyable: "حوّل هذه البيانات إلى عرض تنفيذي من 4 شرائح: شريحة عنوان، ملخص لأهم الاتجاهات، أهم 3 مخاطر، وشريحة ختامية بالتوصيات."
