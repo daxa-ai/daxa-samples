@@ -1,5 +1,8 @@
 .env
 **/.env
+**/.env.*
+**/.env-*
+deck_builder_app/.settings_overrides.json
 kiran.env
 __pycache__/
 *.py[cod]
