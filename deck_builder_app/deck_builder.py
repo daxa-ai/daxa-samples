@@ -14,14 +14,9 @@ from openai import APIStatusError, OpenAI
 
 from file_parser import FileParsingError, is_supported_file, parse_file_to_text
 from utils import (
-    API_BASE_URL,
-    API_KEY,
     CUSTOM_CSS,
     FOOTER_HTML,
     MAIN_HEADER_HTML,
-    MODEL,
-    PEBBLO_USER_GROUPS_MAP,
-    PEBBLO_USERS_LIST,
     X_PEBBLO_USER,
     X_PEBBLO_USER_GROUPS,
     display_chat_message,
@@ -33,6 +28,15 @@ from utils import (
     load_prompts_from_yaml,
     merge_env_model_into_model_list,
     test_api_connection,
+)
+from env_config import (
+    get_api_key,
+    get_debug_enabled,
+    get_env_name,
+    get_model,
+    get_pebblo_user_groups_map,
+    get_pebblo_users_list,
+    get_proxima_host,
 )
 
 # ---------------------------------------------------------------------------
@@ -65,9 +69,6 @@ DECK_SOURCE_DIR = _raw_source_dir if os.path.isabs(_raw_source_dir) else os.path
 # Safe Infer blocking that file), then a final call combines whatever succeeded.
 MULTI_PASS_ENABLED = os.getenv("ENABLE_MULTI_PASS", "false").strip().lower() == "true"
 
-# Set DEBUG=true to append a "⏱ Timing" breakdown to every response. Off by
-# default — this is a diagnostic aid, not something end users need to see.
-DEBUG_ENABLED = os.getenv("DEBUG", "false").strip().lower() == "true"
 
 _raw_access = os.getenv("DOC_ACCESS_ALLOWED", "").strip()
 try:
@@ -489,7 +490,7 @@ def run_deck_pipeline(client: OpenAI, model: str, user_input: str, augmented_upl
     if augmented_upload_content is not None:
         timing: dict = {}
         yield from _call_stream(client, model, DECK_SYSTEM_PROMPT, augmented_upload_content, timing=timing)
-        if DEBUG_ENABLED:
+        if get_debug_enabled():
             total_s = time.perf_counter() - pipeline_start
             yield f"\n\n---\n*{_timing_note('LLM call', timing, total_s)}*"
         return
@@ -507,7 +508,7 @@ def run_deck_pipeline(client: OpenAI, model: str, user_input: str, augmented_upl
             note_parts.append(f"{len(topic_excluded)} file(s) excluded as not relevant to this question: {', '.join(fname for fname, _ in topic_excluded)}")
         if note_parts:
             trailer.append(f"*Note: {'; '.join(note_parts)}.*")
-        if DEBUG_ENABLED:
+        if get_debug_enabled():
             total_s = time.perf_counter() - pipeline_start
             trailer.append(f"*{_timing_note('LLM call', timing, total_s)}*")
         if trailer:
@@ -519,7 +520,7 @@ def run_deck_pipeline(client: OpenAI, model: str, user_input: str, augmented_upl
         reduce_timing: dict = {}
         yield from _reduce_stream(client, model, partials, user_input, skipped, locked, topic_excluded, timing=reduce_timing)
 
-        if DEBUG_ENABLED:
+        if get_debug_enabled():
             total_s = time.perf_counter() - pipeline_start
             parse_total = sum(p for _, p, _ in file_timings)
             map_call_total = sum(c for _, _, c in file_timings)
@@ -552,7 +553,7 @@ def run_deck_pipeline(client: OpenAI, model: str, user_input: str, augmented_upl
     trailer = []
     if note_parts:
         trailer.append(f"*Note: {'; '.join(note_parts)}.*")
-    if DEBUG_ENABLED:
+    if get_debug_enabled():
         total_s = time.perf_counter() - pipeline_start
         first = timing.get("first_token_s")
         first_part = f" (first token {_fmt_secs(first)})" if first is not None else ""
@@ -574,7 +575,7 @@ def stream_deck_builder(
     pebblo_user_groups: str = "",
 ):
     """Safe Infer: routed through the Daxa gateway with Pebblo headers."""
-    client = get_llm_client(api_key or API_KEY, pebblo_user=pebblo_user, pebblo_user_groups=pebblo_user_groups)
+    client = get_llm_client(api_key or get_api_key(), pebblo_user=pebblo_user, pebblo_user_groups=pebblo_user_groups)
     yield from run_deck_pipeline(client, model, user_input, augmented_upload_content, pebblo_groups=pebblo_user_groups or None)
 
 
@@ -592,8 +593,8 @@ def stream_deck_builder_direct(user_input: str, model: str, augmented_upload_con
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=300)
-def fetch_models():
-    """Fetch models from GET .../v1/models (cached 5 min). Returns (names, default_id)."""
+def fetch_models(env_name: str = ""):
+    """Fetch models from GET .../v1/models (cached 5 min per env). Returns (names, default_id)."""
     return get_available_models()
 
 
@@ -627,23 +628,36 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "direct_chat_history" not in st.session_state:
     st.session_state.direct_chat_history = []
-if "selected_model" not in st.session_state:
-    st.session_state.selected_model = MODEL or ""
-if "api_key" not in st.session_state:
-    st.session_state.api_key = API_KEY
 if "model_name" not in st.session_state:
     st.session_state.model_name = ""
 if "prompt_language" not in st.session_state:
     st.session_state.prompt_language = DEFAULT_LANGUAGE
-if "selected_pebblo_user" not in st.session_state:
-    st.session_state.selected_pebblo_user = PEBBLO_USERS_LIST[0] if PEBBLO_USERS_LIST else (X_PEBBLO_USER or "")
+
+# Reset env-dependent state whenever ?env= changes between reruns.
+# On first load, _active_env is absent so the block always fires once.
+_active_env = st.query_params.get("env", "")
+if st.session_state.get("_active_env") != _active_env:
+    st.session_state._active_env = _active_env
+    _users = get_pebblo_users_list()
+    st.session_state.selected_model = get_model() or ""
+    st.session_state.api_key = get_api_key()
+    st.session_state.selected_pebblo_user = _users[0] if _users else (X_PEBBLO_USER or "")
+else:
+    if "selected_model" not in st.session_state:
+        st.session_state.selected_model = get_model() or ""
+    if "api_key" not in st.session_state:
+        st.session_state.api_key = get_api_key()
+    if "selected_pebblo_user" not in st.session_state:
+        _users = get_pebblo_users_list()
+        st.session_state.selected_pebblo_user = _users[0] if _users else (X_PEBBLO_USER or "")
 
 
 def _get_active_pebblo_groups() -> str:
     """Return user-groups string for the selected user, falling back to env default."""
     user = st.session_state.get("selected_pebblo_user", "")
-    if user and PEBBLO_USER_GROUPS_MAP:
-        mapped = PEBBLO_USER_GROUPS_MAP.get(user, "")
+    groups_map = get_pebblo_user_groups_map()
+    if user and groups_map:
+        mapped = groups_map.get(user, "")
         if mapped:
             return mapped
     return X_PEBBLO_USER_GROUPS or ""
@@ -696,7 +710,9 @@ def _render_prompt_language_and_samples() -> None:
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.caption(f"🔗 Target: {API_BASE_URL}")
+    st.caption(f"🔗 Target: {get_proxima_host()}")
+    _env_label = _active_env or get_env_name() or "default"
+    st.caption(f"🌍 Env: `{_env_label}`")
     st.markdown("---")
 
     _raw_mode = st.segmented_control(
@@ -710,11 +726,12 @@ with st.sidebar:
     st.markdown("---")
 
     if mode == "Safe Infer":
-        if PEBBLO_USERS_LIST:
+        _users = get_pebblo_users_list()
+        if _users:
             st.subheader("👤 User")
             st.selectbox(
                 "User",
-                options=PEBBLO_USERS_LIST,
+                options=_users,
                 format_func=format_display_name,
                 key="selected_pebblo_user",
                 label_visibility="collapsed",
@@ -731,11 +748,11 @@ with st.sidebar:
                     st.error(result["message"])
 
         st.subheader("🤖 Model")
-        model_names, default_model = fetch_models()
-        model_names = merge_env_model_into_model_list(model_names, MODEL)
+        model_names, default_model = fetch_models(_active_env)
+        model_names = merge_env_model_into_model_list(model_names, get_model())
         if model_names:
             try:
-                current = st.session_state.get("selected_model") or MODEL or default_model
+                current = st.session_state.get("selected_model") or get_model() or default_model
                 if current not in model_names:
                     current = default_model or model_names[0]
                 idx = model_names.index(current) if current in model_names else 0
@@ -752,7 +769,7 @@ with st.sidebar:
             st.session_state.model_name = selected_model
         else:
             st.warning("Could not load models from API. Enter a model ID below.")
-            fallback = st.session_state.get("selected_model") or MODEL or ""
+            fallback = st.session_state.get("selected_model") or get_model() or ""
             manual = st.text_input(
                 "Model ID",
                 value=fallback,
@@ -763,7 +780,7 @@ with st.sidebar:
                 st.session_state.selected_model = manual.strip()
                 st.session_state.model_name = manual.strip()
         if st.button("Refresh models", key="refresh_models_main"):
-            fetch_models.clear()
+            fetch_models.clear()  # clears all env caches
             st.rerun()
 
         _render_prompt_language_and_samples()
@@ -783,7 +800,7 @@ with st.sidebar:
 
     elif mode == "Insecure Inference":
         st.subheader("🤖 Model")
-        _direct_model_val = st.session_state.get("direct_model") or MODEL or "gpt-5"
+        _direct_model_val = st.session_state.get("direct_model") or get_model() or "gpt-5"
         st.text_input(
             "Model ID",
             value=_direct_model_val,
@@ -938,7 +955,7 @@ elif mode == "Insecure Inference":
         })
         display_chat_message("user", display_content)
 
-        direct_model = (st.session_state.get("direct_model") or MODEL or "gpt-5").strip()
+        direct_model = (st.session_state.get("direct_model") or get_model() or "gpt-5").strip()
 
         try:
             with st.chat_message("assistant"):

@@ -21,18 +21,17 @@ from dotenv import load_dotenv
 _env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(_env_path)
 
+from env_config import get_api_key, get_proxima_host, get_response_api_endpoint
+
 logger = logging.getLogger(__name__)
 
-# API Configuration (from env)
-API_KEY = os.getenv("PEBBLO_API_KEY", "")
-API_BASE_URL = os.getenv("PROXIMA_HOST", "http://localhost")
+# Operator-identity constants — frozen at load time from default .env.
+# These describe who is running the app (not which target environment),
+# so process-global values are acceptable here.
 USER_EMAIL = os.getenv("USER_EMAIL", "User")
 USER_TEAM = os.getenv("USER_TEAM", "Finance Ops")
-RESPONSE_API_ENDPOINT = f"{API_BASE_URL}/safe_infer/llm/v1/"
 X_PEBBLO_USER = os.getenv("X_PEBBLO_USER", None)
 X_PEBBLO_USER_GROUPS = os.getenv("X_PEBBLO_USER_GROUPS", None)
-MODEL = os.getenv("MODEL", "").strip()
-PEBBLO_USERS_LIST = [u.strip() for u in os.getenv("PEBBLO_USERS", "").split(",") if u.strip()]
 
 
 def _parse_user_groups_map(raw: str) -> dict:
@@ -50,7 +49,6 @@ def _parse_user_groups_map(raw: str) -> dict:
     return result
 
 
-PEBBLO_USER_GROUPS_MAP: dict = _parse_user_groups_map(os.getenv("PEBBLO_USER_GROUPS_MAP", ""))
 
 CUSTOM_CSS = """
 <style>
@@ -154,7 +152,7 @@ def _normalize_prompt_list(prompts: Any) -> List[Dict[str, str]]:
 
 def test_api_connection(api_base_url: str = None) -> Dict[str, Any]:
     """Test the API connection."""
-    base = api_base_url or API_BASE_URL
+    base = api_base_url or get_proxima_host()
     try:
         response = requests.get(f"{base}/safe_infer/healthz", timeout=5)
         if response.status_code == 200:
@@ -267,7 +265,7 @@ def _models_request_headers(
     pebblo_user: str = None,
     pebblo_user_groups: str = None,
 ) -> Dict[str, str]:
-    key = api_key if api_key is not None else API_KEY
+    key = api_key if api_key is not None else get_api_key()
     headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {key}" if key else "",
@@ -304,7 +302,7 @@ def get_available_models(
     On total failure returns ([], "").
     pebblo_user / pebblo_user_groups: optional overrides for Pebblo headers.
     """
-    base = (api_base_url or API_BASE_URL or "").rstrip("/")
+    base = (api_base_url or get_proxima_host() or "").rstrip("/")
     headers = _models_request_headers(api_key, pebblo_user, pebblo_user_groups)
 
     safe_infer_url = f"{base}/safe_infer/llm/v1/models"
@@ -353,7 +351,7 @@ def get_llm_client(
     pebblo_user: if non-empty, use for X-PEBBLO-USER header; else use env X_PEBBLO_USER.
     pebblo_user_groups: if non-empty, use for X-PEBBLO-USER-GROUPS; else use env.
     """
-    key = api_key or API_KEY
+    key = api_key or get_api_key()
     default_headers = {}
     header_user = (
         pebblo_user.strip() if (pebblo_user and pebblo_user.strip()) else X_PEBBLO_USER
@@ -369,7 +367,7 @@ def get_llm_client(
         default_headers["X-PEBBLO-USER-GROUPS"] = header_groups
     default_headers = default_headers or None
     return OpenAI(
-        base_url=RESPONSE_API_ENDPOINT,
+        base_url=get_response_api_endpoint(),
         api_key=key,
         default_headers=default_headers,
         http_client=_http_client(),
