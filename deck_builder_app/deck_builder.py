@@ -1,7 +1,8 @@
 """Deck Builder App — upload a file (or use a folder of them) + instructions, get a slide outline back.
 
 Two modes, selectable from the sidebar:
-  - Safe Infer:         routed through the Daxa/Proxima SafeInfer gateway (Pebblo headers).
+  - Safe Infer:         routed through the configured gateway (GATEWAY_TYPE: Daxa/Proxima
+                        SafeInfer with Pebblo headers, or a LiteLLM proxy).
   - Insecure Inference:  calls the configured model directly, no gateway, no Pebblo headers.
 """
 import ast
@@ -14,10 +15,10 @@ from openai import APIStatusError, OpenAI
 
 from file_parser import FileParsingError, is_supported_file, parse_file_to_text
 from utils import (
-    API_BASE_URL,
-    API_KEY,
     CUSTOM_CSS,
     FOOTER_HTML,
+    GATEWAY_LABEL,
+    GATEWAY_TARGET,
     MAIN_HEADER_HTML,
     MODEL,
     PEBBLO_USER_GROUPS_MAP,
@@ -30,6 +31,7 @@ from utils import (
     get_direct_llm_client,
     get_llm_client,
     get_welcome_html,
+    is_blocked_error,
     load_prompts_from_yaml,
     merge_env_model_into_model_list,
     test_api_connection,
@@ -61,8 +63,8 @@ DECK_SOURCE_DIR = _raw_source_dir if os.path.isabs(_raw_source_dir) else os.path
 # file's content is combined into ONE prompt and sent in a single LLM call
 # (fast, but a block/error on that one call fails the whole turn). Set to
 # "true" to use the slower, more resilient multi-pass map-then-reduce pipeline
-# instead — one call per file (skipping any that error, e.g. an HTTP 403 —
-# Safe Infer blocking that file), then a final call combines whatever succeeded.
+# instead — one call per file (skipping any that error, e.g. an HTTP 403 or a
+# LiteLLM guardrail 400 — Safe Infer blocking that file), then a final call combines whatever succeeded.
 MULTI_PASS_ENABLED = os.getenv("ENABLE_MULTI_PASS", "false").strip().lower() == "true"
 
 # Set DEBUG=true to append a "⏱ Timing" breakdown to every response. Off by
@@ -266,7 +268,7 @@ def _fmt_secs(seconds: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# LLM calls — Safe Infer (via Daxa gateway) and Insecure Inference (direct)
+# LLM calls — Safe Infer (via Daxa or LiteLLM gateway) and Insecure Inference (direct)
 #
 # Folder-iteration pipeline: when no file is uploaded directly, every eligible
 # file in DECK_SOURCE_DIR is used. By default (MULTI_PASS_ENABLED=false) all
@@ -274,7 +276,7 @@ def _fmt_secs(seconds: float) -> str:
 # but a block/error on that one call fails the whole turn. Set
 # ENABLE_MULTI_PASS=true for the slower, more resilient alternative: one
 # non-streaming "map" call per file, skipping any that error (in particular an
-# HTTP 403 — Safe Infer blocking that content), then a final streaming
+# HTTP 403, or a LiteLLM guardrail 400 — Safe Infer blocking that content), then a final streaming
 # "reduce" call combines whatever succeeded — a blocked file never prevents
 # the rest of the deck from being generated.
 # ---------------------------------------------------------------------------
@@ -367,8 +369,8 @@ def _map_source_files(client: OpenAI, model: str, eligible: list, user_input: st
 
     Returns (partials, skipped, file_timings):
       partials: [(fname, partial_text), ...] for files that succeeded.
-      skipped:  [(fname, reason), ...] for files that errored (403 = blocked by
-        Safe Infer; anything else is a generic error) — never aborts the run.
+      skipped:  [(fname, reason), ...] for files that errored (blocked by the
+        gateway — see is_blocked_error — or a generic error) — never aborts the run.
       file_timings: [(fname, parse_s, call_s), ...] for every attempted file
         (call_s is 0.0 for files that errored before/without completing a call).
     """
@@ -393,7 +395,8 @@ def _map_source_files(client: OpenAI, model: str, eligible: list, user_input: st
             except APIStatusError as exc:
                 parse_s = time.perf_counter() - parse_start
                 status_code = getattr(exc, "status_code", None)
-                reason = "blocked (HTTP 403)" if status_code == 403 else f"error (HTTP {status_code})"
+                label = "blocked" if is_blocked_error(status_code, str(exc)) else "error"
+                reason = f"{label} (HTTP {status_code})"
                 skipped.append((fname, reason))
                 file_timings.append((fname, parse_s, 0.0))
                 status_box.write(f"❌ {fname} — {reason}")
@@ -573,8 +576,8 @@ def stream_deck_builder(
     pebblo_user: str = "",
     pebblo_user_groups: str = "",
 ):
-    """Safe Infer: routed through the Daxa gateway with Pebblo headers."""
-    client = get_llm_client(api_key or API_KEY, pebblo_user=pebblo_user, pebblo_user_groups=pebblo_user_groups)
+    """Safe Infer: routed through the configured gateway (Daxa or LiteLLM)."""
+    client = get_llm_client(api_key or None, pebblo_user=pebblo_user, pebblo_user_groups=pebblo_user_groups)
     yield from run_deck_pipeline(client, model, user_input, augmented_upload_content, pebblo_groups=pebblo_user_groups or None)
 
 
@@ -630,7 +633,8 @@ if "direct_chat_history" not in st.session_state:
 if "selected_model" not in st.session_state:
     st.session_state.selected_model = MODEL or ""
 if "api_key" not in st.session_state:
-    st.session_state.api_key = API_KEY
+    # Empty = use the configured gateway's key (PEBBLO_API_KEY or LITELLM_API_KEY).
+    st.session_state.api_key = ""
 if "model_name" not in st.session_state:
     st.session_state.model_name = ""
 if "prompt_language" not in st.session_state:
@@ -696,7 +700,7 @@ def _render_prompt_language_and_samples() -> None:
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.caption(f"🔗 Target: {API_BASE_URL}")
+    st.caption(f"🔗 Target: Safe Infer · {GATEWAY_LABEL} ({GATEWAY_TARGET})")
     st.markdown("---")
 
     _raw_mode = st.segmented_control(

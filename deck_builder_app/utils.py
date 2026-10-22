@@ -1,4 +1,5 @@
 """Shared utilities and config for Deck Builder app (Safe Infer + Insecure Inference)."""
+import functools
 import logging
 import os
 from typing import Any, Dict, List
@@ -33,6 +34,78 @@ X_PEBBLO_USER = os.getenv("X_PEBBLO_USER", None)
 X_PEBBLO_USER_GROUPS = os.getenv("X_PEBBLO_USER_GROUPS", None)
 MODEL = os.getenv("MODEL", "").strip()
 PEBBLO_USERS_LIST = [u.strip() for u in os.getenv("PEBBLO_USERS", "").split(",") if u.strip()]
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
+# ---------------------------------------------------------------------------
+# Gateway selection (Safe Infer mode)
+#
+# GATEWAY_TYPE picks which OpenAI-compatible gateway Safe Infer talks to:
+#   daxa (default) — Daxa/Proxima SafeInfer at {PROXIMA_HOST}/safe_infer/llm/v1/
+#   litellm        — a LiteLLM proxy at {LITELLM_BASE_URL}/v1
+# Only the endpoints, auth and identity forwarding differ; the deck pipeline
+# itself is gateway-agnostic (it just takes an OpenAI client + model name).
+# ---------------------------------------------------------------------------
+
+GATEWAY_DAXA = "daxa"
+GATEWAY_LITELLM = "litellm"
+
+GATEWAY_TYPE = os.getenv("GATEWAY_TYPE", GATEWAY_DAXA).strip().lower() or GATEWAY_DAXA
+if GATEWAY_TYPE not in (GATEWAY_DAXA, GATEWAY_LITELLM):
+    logger.warning("Unknown GATEWAY_TYPE=%r; falling back to %r", GATEWAY_TYPE, GATEWAY_DAXA)
+    GATEWAY_TYPE = GATEWAY_DAXA
+
+LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:4000").strip()
+LITELLM_API_KEY = os.getenv("LITELLM_API_KEY", "").strip()
+LITELLM_FORWARD_PEBBLO_HEADERS = _env_bool("LITELLM_FORWARD_PEBBLO_HEADERS", False)
+
+
+def _litellm_root(url: str) -> str:
+    """Normalize LITELLM_BASE_URL to the proxy root (no trailing '/' or '/v1')."""
+    root = (url or "").rstrip("/")
+    return root[: -len("/v1")] if root.endswith("/v1") else root
+
+
+def _build_gateway_profile() -> Dict[str, Any]:
+    """Endpoints, auth and identity behaviour for the configured GATEWAY_TYPE."""
+    if GATEWAY_TYPE == GATEWAY_LITELLM:
+        root = _litellm_root(LITELLM_BASE_URL)
+        return {
+            "type": GATEWAY_LITELLM,
+            "label": "LiteLLM",
+            "target": root,
+            "chat_base_url": f"{root}/v1",
+            "models_urls": [f"{root}/v1/models"],
+            # /health/liveliness is LiteLLM's cheap, unauthenticated liveness probe;
+            # /health would call every configured model, too slow for a button.
+            "health_url": f"{root}/health/liveliness",
+            "api_key": LITELLM_API_KEY,
+            "send_pebblo_headers": LITELLM_FORWARD_PEBBLO_HEADERS,
+            "send_user_field": True,
+        }
+    base = (API_BASE_URL or "").rstrip("/")
+    return {
+        "type": GATEWAY_DAXA,
+        "label": "Daxa",
+        "target": API_BASE_URL,
+        "chat_base_url": RESPONSE_API_ENDPOINT,
+        "models_urls": [f"{base}/safe_infer/llm/v1/models", f"{base}/llm/v1/models"],
+        "health_url": f"{base}/safe_infer/healthz",
+        "api_key": API_KEY,
+        "send_pebblo_headers": True,
+        "send_user_field": False,
+    }
+
+
+GATEWAY = _build_gateway_profile()
+GATEWAY_LABEL = GATEWAY["label"]
+GATEWAY_TARGET = GATEWAY["target"]
 
 
 def _parse_user_groups_map(raw: str) -> dict:
@@ -107,9 +180,9 @@ MAIN_HEADER_HTML = """
 </div>
 """
 
-FOOTER_HTML = """
+FOOTER_HTML = f"""
 <div style="text-align: center; color: #666; font-size: 0.8rem;">
-    <p>🛡️ Powered by SafeInfer LLM API | Secure • Intelligent • Reliable</p>
+    <p>🛡️ Powered by SafeInfer LLM API ({GATEWAY_LABEL}) | Secure • Intelligent • Reliable</p>
 </div>
 """
 
@@ -152,11 +225,10 @@ def _normalize_prompt_list(prompts: Any) -> List[Dict[str, str]]:
     return result
 
 
-def test_api_connection(api_base_url: str = None) -> Dict[str, Any]:
-    """Test the API connection."""
-    base = api_base_url or API_BASE_URL
+def test_api_connection() -> Dict[str, Any]:
+    """Test the configured gateway's health endpoint."""
     try:
-        response = requests.get(f"{base}/safe_infer/healthz", timeout=5)
+        response = requests.get(GATEWAY["health_url"], timeout=5)
         if response.status_code == 200:
             return {"status": "success", "message": "API is accessible"}
         return {"status": "error", "message": f"API returned status {response.status_code}"}
@@ -262,58 +334,64 @@ def _fetch_model_ids_from_url(url: str, headers: Dict[str, str]) -> List[str]:
     return _parse_models_response_body(body)
 
 
+def _resolve_pebblo_identity(pebblo_user: str = None, pebblo_user_groups: str = None) -> tuple:
+    """(user, groups) from the given overrides, falling back to env X_PEBBLO_USER*."""
+    user = pebblo_user.strip() if (pebblo_user and pebblo_user.strip()) else X_PEBBLO_USER
+    groups = (
+        pebblo_user_groups.strip()
+        if (pebblo_user_groups and pebblo_user_groups.strip())
+        else X_PEBBLO_USER_GROUPS
+    )
+    return user, groups
+
+
+def _pebblo_headers(pebblo_user: str = None, pebblo_user_groups: str = None) -> Dict[str, str]:
+    """X-PEBBLO-* headers, or {} when the configured gateway doesn't take them."""
+    if not GATEWAY["send_pebblo_headers"]:
+        return {}
+    user, groups = _resolve_pebblo_identity(pebblo_user, pebblo_user_groups)
+    headers = {}
+    if user:
+        headers["X-PEBBLO-USER"] = user
+    if groups:
+        headers["X-PEBBLO-USER-GROUPS"] = groups
+    return headers
+
+
 def _models_request_headers(
     api_key: str = None,
     pebblo_user: str = None,
     pebblo_user_groups: str = None,
 ) -> Dict[str, str]:
-    key = api_key if api_key is not None else API_KEY
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {key}" if key else "",
-    }
-    header_user = (
-        pebblo_user.strip() if (pebblo_user and pebblo_user.strip()) else X_PEBBLO_USER
-    )
-    if header_user:
-        headers["X-PEBBLO-USER"] = header_user
-    header_groups = (
-        pebblo_user_groups.strip()
-        if (pebblo_user_groups and pebblo_user_groups.strip())
-        else X_PEBBLO_USER_GROUPS
-    )
-    if header_groups:
-        headers["X-PEBBLO-USER-GROUPS"] = header_groups
-    if not key:
-        headers.pop("Authorization", None)
+    key = api_key if api_key is not None else GATEWAY["api_key"]
+    headers = {"Accept": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    headers.update(_pebblo_headers(pebblo_user, pebblo_user_groups))
     return headers
 
 
 def get_available_models(
-    api_base_url: str = None,
     api_key: str = None,
     pebblo_user: str = None,
     pebblo_user_groups: str = None,
 ):
-    """Fetch models from safe_infer and plain LLM endpoints, merged in order.
+    """Fetch models from the configured gateway's model-list URL(s), merged in order.
 
-    Combines GET {base}/safe_infer/llm/v1/models and GET {base}/llm/v1/models,
-    appending the second list after the first (deduplicated, order preserved).
+    Daxa: GET {base}/safe_infer/llm/v1/models then GET {base}/llm/v1/models.
+    LiteLLM: GET {LITELLM_BASE_URL}/v1/models.
+    Lists are appended in that order (deduplicated, order preserved).
 
     Returns (model_names, default_model_name).
     On total failure returns ([], "").
     pebblo_user / pebblo_user_groups: optional overrides for Pebblo headers.
     """
-    base = (api_base_url or API_BASE_URL or "").rstrip("/")
     headers = _models_request_headers(api_key, pebblo_user, pebblo_user_groups)
+    fetched: List[str] = []
+    for url in GATEWAY["models_urls"]:
+        fetched += _fetch_model_ids_from_url(url, headers)
 
-    safe_infer_url = f"{base}/safe_infer/llm/v1/models"
-    llm_v1_url = f"{base}/llm/v1/models"
-
-    from_safe_infer = _fetch_model_ids_from_url(safe_infer_url, headers)
-    from_llm_v1 = _fetch_model_ids_from_url(llm_v1_url, headers)
-
-    merged = list(dict.fromkeys(from_safe_infer + from_llm_v1))
+    merged = list(dict.fromkeys(fetched))
     if not merged:
         return [], ""
 
@@ -348,32 +426,45 @@ def get_llm_client(
     pebblo_user: str = None,
     pebblo_user_groups: str = None,
 ) -> OpenAI:
-    """Build an OpenAI client routed through the Daxa/Proxima SafeInfer gateway.
+    """Build an OpenAI client routed through the configured Safe Infer gateway
+    (GATEWAY_TYPE: Daxa/Proxima SafeInfer or LiteLLM).
 
     pebblo_user: if non-empty, use for X-PEBBLO-USER header; else use env X_PEBBLO_USER.
     pebblo_user_groups: if non-empty, use for X-PEBBLO-USER-GROUPS; else use env.
+    Daxa always gets these headers; LiteLLM gets them only when
+    LITELLM_FORWARD_PEBBLO_HEADERS=true, and instead gets the user as the
+    OpenAI `user` field on every chat completion.
     """
-    key = api_key or API_KEY
-    default_headers = {}
-    header_user = (
-        pebblo_user.strip() if (pebblo_user and pebblo_user.strip()) else X_PEBBLO_USER
-    )
-    if header_user:
-        default_headers["X-PEBBLO-USER"] = header_user
-    header_groups = (
-        pebblo_user_groups.strip()
-        if (pebblo_user_groups and pebblo_user_groups.strip())
-        else X_PEBBLO_USER_GROUPS
-    )
-    if header_groups:
-        default_headers["X-PEBBLO-USER-GROUPS"] = header_groups
-    default_headers = default_headers or None
-    return OpenAI(
-        base_url=RESPONSE_API_ENDPOINT,
+    key = api_key or GATEWAY["api_key"]
+    client = OpenAI(
+        base_url=GATEWAY["chat_base_url"],
         api_key=key,
-        default_headers=default_headers,
+        default_headers=_pebblo_headers(pebblo_user, pebblo_user_groups) or None,
         http_client=_http_client(),
         max_retries=0,
+    )
+    end_user, _ = _resolve_pebblo_identity(pebblo_user, pebblo_user_groups)
+    if GATEWAY["send_user_field"] and end_user:
+        # The SDK has no per-client default body, so bind `user` onto this
+        # client's completions.create — callers stay gateway-agnostic.
+        completions = client.chat.completions
+        completions.create = functools.partial(completions.create, user=end_user)
+    return client
+
+
+def is_blocked_error(status_code: int, message: str = "") -> bool:
+    """True if an API error means the gateway blocked the content.
+
+    Daxa SafeInfer blocks with HTTP 403. LiteLLM guardrails usually reject with
+    HTTP 400 and an error body mentioning the guardrail, so treat that as a
+    block too when GATEWAY_TYPE=litellm.
+    """
+    if status_code == 403:
+        return True
+    return (
+        GATEWAY["type"] == GATEWAY_LITELLM
+        and status_code == 400
+        and "guardrail" in (message or "").lower()
     )
 
 

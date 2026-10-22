@@ -6,7 +6,7 @@ selectable from the sidebar:
 
 | Mode | LLM routing | Pebblo headers |
 |------|-------------|-----------------|
-| **Safe Infer** | Daxa/Proxima SafeInfer gateway | ✅ |
+| **Safe Infer** | Daxa/Proxima SafeInfer gateway, or a LiteLLM proxy (`GATEWAY_TYPE`) | ✅ Daxa / optional for LiteLLM |
 | **Insecure Inference** | Direct to the configured model (`OPENAI_API_KEY`) | ❌ |
 
 ---
@@ -40,7 +40,10 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-# ── SafeInfer / Proxima gateway (Safe Infer mode) ────────────────────────────
+# ── Safe Infer gateway: daxa (default) or litellm — see "Using LiteLLM" ──────
+GATEWAY_TYPE=daxa
+
+# ── SafeInfer / Proxima gateway (GATEWAY_TYPE=daxa) ──────────────────────────
 PROXIMA_HOST=https://<your-proxima-host>/
 PEBBLO_API_KEY=pebblo_<your-global-key>
 
@@ -112,7 +115,8 @@ that turn:
   - **`true` — multi pass:** one non-streaming call per file collects a short
     set of key points from that file alone, then a final call combines
     whatever came back into one outline. If a file's call fails — in
-    particular an HTTP 403, meaning Safe Infer blocked that file's content —
+    particular an HTTP 403 (or, with LiteLLM, an HTTP 400 guardrail
+    rejection), meaning Safe Infer blocked that file's content —
     that file is skipped and the rest of the run continues. Slower (N+1
     calls instead of 1), but a blocked/failed file never prevents the rest
     of the deck from being generated.
@@ -163,6 +167,48 @@ as a prompt instruction hoping the model ignores irrelevant content:
 - Any exclusion is noted in the response, e.g. *"1 file(s) excluded as not
   relevant to this question: Board Meeting Summary Doc.docx."*
 
+### Using LiteLLM
+
+Safe Infer can point at a [LiteLLM proxy](https://docs.litellm.ai/docs/proxy/quick_start)
+instead of the Daxa gateway. The chat pipeline is identical; only the
+endpoints, auth and identity forwarding change:
+
+| | `GATEWAY_TYPE=daxa` (default) | `GATEWAY_TYPE=litellm` |
+|---|---|---|
+| Chat base URL | `{PROXIMA_HOST}/safe_infer/llm/v1/` | `{LITELLM_BASE_URL}/v1` |
+| Model list | `/safe_infer/llm/v1/models` + `/llm/v1/models` | `/v1/models` |
+| Test API Connection | `/safe_infer/healthz` | `/health/liveliness` |
+| API key | `PEBBLO_API_KEY` | `LITELLM_API_KEY` |
+| User identity | `X-PEBBLO-USER` / `X-PEBBLO-USER-GROUPS` headers | OpenAI `user` field (+ the Pebblo headers if `LITELLM_FORWARD_PEBBLO_HEADERS=true`) |
+| Blocked file (multi pass) | HTTP 403 | HTTP 403, or HTTP 400 mentioning a guardrail |
+
+```env
+GATEWAY_TYPE=litellm
+LITELLM_BASE_URL=http://localhost:4000
+LITELLM_API_KEY=sk-...                 # LiteLLM virtual key or master key
+LITELLM_FORWARD_PEBBLO_HEADERS=false   # true if a guardrail behind LiteLLM reads X-PEBBLO-*
+```
+
+A minimal LiteLLM `config.yaml` exposing one model:
+
+```yaml
+model_list:
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+general_settings:
+  master_key: sk-1234   # use as LITELLM_API_KEY (or issue a virtual key)
+```
+
+```bash
+litellm --config config.yaml --port 4000
+```
+
+The sidebar's **Target** caption and the footer show which gateway is active.
+Insecure Inference mode is unaffected — it always calls OpenAI directly.
+
 ---
 
 ## Notes
@@ -174,4 +220,4 @@ as a prompt instruction hoping the model ignores irrelevant content:
 - `file_parser.py` has no Streamlit dependency — it can be reused as-is in
   other apps or scripts that need file-to-text conversion.
 
-**Powered by Daxa Proxima · SafeInfer · OpenAI**
+**Powered by Daxa Proxima · SafeInfer · LiteLLM · OpenAI**
